@@ -1,0 +1,309 @@
+/* ============================================
+   PADEL DOHA - DESIGN SYSTEM
+   Inspiré du sable du désert + vert pádel néon
+   ============================================ */
+
+:root {
+  /* Palette */
+  --bg-deep: #0a1929;
+  --bg-mid: #112a40;
+  --bg-soft: #1a3a55;
+  --sand: #e8dcc4;
+  --sand-warm: #c9a96e;
+  --neon: #d4ff3a;
+  --neon-soft: #b8e832;
+  --coral: #ff6b4a;
+  --white: #f5f1e8;
+  --gray: #8da5b8;
+  --line: rgba(232, 220, 196, 0.12);
+  --danger: #ff4757;
+  --success: #2ed573;
+
+  /* Fonts */
+  --font-display: 'Bebas Neue', 'Impact', sans-serif;
+  --font-body: 'Manrope', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  background: var(--bg-deep);
+  color: var(--white);
+  font-family: var(--font-body);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100vh;
+  position: relative;
+}
+
+/* Texture de fond globale */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(212, 255, 58, 0.06) 0%, transparent 40%),
+    radial-gradient(circle at 80% 90%, rgba(201, 169, 110, 0.08) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+input, select, textarea {
+  font-family: inherit;
+  border: none;
+  outline: none;
+  background: none;
+  color: inherit;
+}
+
+/* ============================================
+   COMPOSANTS RÉUTILISABLES
+   ============================================ */
+
+/* Boutons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 28px;
+  font-family: var(--font-display);
+  font-size: 18px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  border: 2px solid transparent;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: var(--neon);
+  color: var(--bg-deep);
+  box-shadow: 0 4px 20px rgba(212, 255, 58, 0.3);
+}
+.btn-primary:hover {
+  background: var(--neon-soft);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px rgba(212, 255, 58, 0.45);
+}
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--sand);
+  border: 2px solid var(--sand-warm);
+}
+.btn-secondary:hover {
+  background: rgba(201, 169, 110, 0.1);
+  border-color: var(--sand);
+}
+
+.btn-ghost {
+  background: var(--bg-mid);
+  color: var(--white);
+  border: 1px solid var(--line);
+}
+.btn-ghost:hover {
+  background: var(--bg-soft);
+  border-color: var(--sand-warm);
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--danger);
+  border: 2px solid var(--danger);
+}
+.btn-danger:hover {
+  background: rgba(255, 71, 87, 0.1);
+}
+
+.btn-small {
+  padding: 8px 16px;
+  font-size: 14px;
+}
+
+/* Cards */
+.card {
+  background: var(--bg-mid);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+/* Inputs */
+.input {
+  width: 100%;
+  padding: 14px 18px;
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--white);
+  font-size: 16px;
+  transition: border-color 0.2s ease;
+}
+.input:focus {
+  border-color: var(--neon);
+}
+.input::placeholder {
+  color: var(--gray);
+}
+
+.label {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 0.15em;
+  color: var(--sand-warm);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+/* Titres */
+.h-display {
+  font-family: var(--font-display);
+  letter-spacing: 0.05em;
+  line-height: 0.95;
+}
+
+/* Header global */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(10, 25, 41, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--line);
+  padding: 16px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.app-header__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: var(--white);
+}
+
+.app-header__logo {
+  width: 36px;
+  height: 36px;
+}
+
+.app-header__title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  letter-spacing: 0.08em;
+}
+
+.app-header__title span {
+  color: var(--neon);
+}
+
+.app-header__user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: var(--gray);
+}
+
+/* Container */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px 24px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 25, 41, 0.85);
+  backdrop-filter: blur(8px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.2s ease;
+}
+
+.modal-content {
+  background: var(--bg-mid);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 32px;
+  max-width: 480px;
+  width: 100%;
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Badge */
+.badge {
+  display: inline-block;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  background: rgba(212, 255, 58, 0.15);
+  color: var(--neon);
+}
+
+.badge-warm {
+  background: rgba(201, 169, 110, 0.15);
+  color: var(--sand-warm);
+}
+
+.badge-coral {
+  background: rgba(255, 107, 74, 0.15);
+  color: var(--coral);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .container { padding: 20px 16px; }
+  .btn { font-size: 16px; padding: 12px 20px; }
+  .app-header__title { font-size: 18px; }
+  .modal-content { padding: 24px; }
+}
