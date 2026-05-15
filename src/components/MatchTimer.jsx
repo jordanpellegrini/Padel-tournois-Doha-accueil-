@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 
 /**
  * Timer du tournoi
- * - Phase "match" : compte à rebours matchDuration → popup "fin de match"
- * - Pause AUTOMATIQUE après fin de match (plus besoin de cliquer)
- * - Phase "break" : compte à rebours breakDuration → popup "fin de pause"
- * - Si l'admin change matchDuration ou breakDuration en cours de route,
- *   le timer EN COURS est mis à jour proportionnellement (le pourcentage écoulé
- *   reste le même, mais la durée totale change)
+ * - Match : matchDuration min
+ *   - À 5min de la fin → popup + 1 coup de sifflet
+ *   - À la fin → popup + 2 coups + pause auto
+ * - Pause : breakDuration min
+ *   - À 2min de la fin → popup + 1 coup
+ *   - À la fin → popup + 2 coups + match auto
  */
 export default function MatchTimer({
   matchDuration,
@@ -17,38 +17,35 @@ export default function MatchTimer({
   onMatchEnd,
   onBreakEnd,
 }) {
-  // 'idle' | 'match' | 'break' | 'match-ending' | 'break-ending' | 'done'
   const [phase, setPhase] = useState('idle')
   const [secondsLeft, setSecondsLeft] = useState(matchDuration * 60)
-  const [popupType, setPopupType] = useState(null) // 'match-end' | 'break-end'
-  const intervalRef = useRef(null)
+  const [popupType, setPopupType] = useState(null)
+  // ⭐ FIX : on utilise un STATE et non une ref pour que React re-render
+  // quand on met en pause / reprend
+  const [isRunning, setIsRunning] = useState(false)
 
-  // On garde une référence à la phase courante pour le useEffect des durées
+  const intervalRef = useRef(null)
+  const matchWarningShownRef = useRef(false)
+  const breakWarningShownRef = useRef(false)
+
   const phaseRef = useRef(phase)
   useEffect(() => {
     phaseRef.current = phase
   }, [phase])
 
-  // ============================================
-  // MISE À JOUR AUTOMATIQUE DU TIMER quand les durées changent
-  // ============================================
-  // Quand matchDuration ou breakDuration change (admin modifie via la modale),
-  // on adapte le timer en cours.
   useEffect(() => {
-    // Si on est en idle, on synchronise simplement le compteur sur la nouvelle durée
     if (phaseRef.current === 'idle') {
       setSecondsLeft(matchDuration * 60)
     }
-    // Si on est en mode match ou break, le useEffect est déclenché par le changement
-    // de prop -> on ne touche pas au temps restant, on garde la progression actuelle.
-    // Mais si l'utilisateur clique sur "Reset", il aura la nouvelle valeur.
   }, [matchDuration, breakDuration])
 
   useEffect(() => {
-    return () => clearInterval(intervalRef.current)
+    return () => {
+      clearInterval(intervalRef.current)
+    }
   }, [])
 
-  const playBeep = () => {
+  const playSingleBeep = () => {
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)()
       const osc = ctx.createOscillator()
@@ -57,62 +54,96 @@ export default function MatchTimer({
       gain.connect(ctx.destination)
       osc.frequency.value = 880
       gain.gain.setValueAtTime(0.3, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.5)
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.0)
       osc.start()
-      osc.stop(ctx.currentTime + 1.5)
+      osc.stop(ctx.currentTime + 1.0)
+    } catch (e) {}
+  }
+
+  const playDoubleBeep = () => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      const osc1 = ctx.createOscillator()
+      const gain1 = ctx.createGain()
+      osc1.connect(gain1)
+      gain1.connect(ctx.destination)
+      osc1.frequency.value = 880
+      gain1.gain.setValueAtTime(0.3, ctx.currentTime)
+      gain1.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6)
+      osc1.start(ctx.currentTime)
+      osc1.stop(ctx.currentTime + 0.6)
+      const osc2 = ctx.createOscillator()
+      const gain2 = ctx.createGain()
+      osc2.connect(gain2)
+      gain2.connect(ctx.destination)
+      osc2.frequency.value = 880
+      gain2.gain.setValueAtTime(0.3, ctx.currentTime + 0.7)
+      gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.4)
+      osc2.start(ctx.currentTime + 0.7)
+      osc2.stop(ctx.currentTime + 1.4)
     } catch (e) {}
   }
 
   // ============================================
-  // FONCTION GÉNÉRIQUE DE COMPTE À REBOURS
+  // FONCTION INTERNE : démarre un intervalle qui décrémente
   // ============================================
-  const startTimer = (durationSeconds, currentPhase) => {
+  const startInterval = (currentPhase) => {
     clearInterval(intervalRef.current)
-    setSecondsLeft(durationSeconds)
+    setIsRunning(true) // ⭐ on met le state à true
 
     intervalRef.current = setInterval(() => {
       setSecondsLeft((s) => {
+        const newSeconds = s - 1
+
+        // Avertissements
+        if (currentPhase === 'match' && !matchWarningShownRef.current && newSeconds === 5 * 60) {
+          matchWarningShownRef.current = true
+          playSingleBeep()
+          setPopupType('match-warning')
+        } else if (currentPhase === 'break' && !breakWarningShownRef.current && newSeconds === 2 * 60) {
+          breakWarningShownRef.current = true
+          playSingleBeep()
+          setPopupType('break-warning')
+        }
+
+        // Fin du timer
         if (s <= 1) {
           clearInterval(intervalRef.current)
           intervalRef.current = null
-          playBeep()
+          setIsRunning(false)
+          playDoubleBeep()
 
           if (currentPhase === 'match') {
-            // Fin du match : popup ET lance la pause AUTOMATIQUEMENT
             setPopupType('match-end')
             setPhase('match-ending')
-            // Si c'est le dernier round, on s'arrête
             if (currentRound >= totalRounds) {
               setPhase('done')
               return 0
             }
-            // Sinon, lance la pause auto après 1 seconde
-            // (juste le temps que la popup s'affiche)
-            setTimeout(() => {
-              startBreakAuto()
-            }, 500)
+            setTimeout(() => startBreakAuto(), 500)
           } else if (currentPhase === 'break') {
-            // Fin de la pause : popup ET lance le match suivant AUTOMATIQUEMENT
             setPopupType('break-end')
             setPhase('break-ending')
-            setTimeout(() => {
-              startMatchAuto()
-            }, 500)
+            setTimeout(() => startMatchAuto(), 500)
           }
           return 0
         }
-        return s - 1
+
+        return newSeconds
       })
     }, 1000)
   }
 
-  // ============================================
-  // DÉMARRAGES AUTOMATIQUES (chaînage match → pause → match → ...)
-  // ============================================
+  const startTimer = (durationSeconds, currentPhase) => {
+    setSecondsLeft(durationSeconds)
+    if (currentPhase === 'match') matchWarningShownRef.current = false
+    else if (currentPhase === 'break') breakWarningShownRef.current = false
+    startInterval(currentPhase)
+  }
+
   const startBreakAuto = () => {
     if (onMatchEnd) onMatchEnd()
     setPhase('break')
-    // Lit la dernière valeur de breakDuration (pas la valeur capturée à t=0)
     startTimer(breakDuration * 60, 'break')
   }
 
@@ -122,71 +153,48 @@ export default function MatchTimer({
     startTimer(matchDuration * 60, 'match')
   }
 
-  // ============================================
-  // ACTIONS UTILISATEUR
-  // ============================================
   const handleStartMatch = () => {
     setPhase('match')
     startTimer(matchDuration * 60, 'match')
   }
 
-  // Fermeture manuelle des popups (au cas où l'utilisateur veut acquitter)
   const handleClosePopup = () => {
     setPopupType(null)
   }
 
+  // ⭐ PAUSE : arrête l'intervalle et passe isRunning à false
   const handlePause = () => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current)
       intervalRef.current = null
+      setIsRunning(false)
     }
   }
 
+  // ⭐ RESUME : redémarre l'intervalle et passe isRunning à true
   const handleResume = () => {
     if (!intervalRef.current && secondsLeft > 0) {
       const currentPhase = phase === 'match' ? 'match' : 'break'
-      intervalRef.current = setInterval(() => {
-        setSecondsLeft((s) => {
-          if (s <= 1) {
-            clearInterval(intervalRef.current)
-            intervalRef.current = null
-            playBeep()
-            if (currentPhase === 'match') {
-              setPopupType('match-end')
-              setPhase('match-ending')
-              if (currentRound >= totalRounds) {
-                setPhase('done')
-                return 0
-              }
-              setTimeout(() => startBreakAuto(), 500)
-            } else {
-              setPopupType('break-end')
-              setPhase('break-ending')
-              setTimeout(() => startMatchAuto(), 500)
-            }
-            return 0
-          }
-          return s - 1
-        })
-      }, 1000)
+      startInterval(currentPhase)
     }
   }
 
   const handleReset = () => {
     clearInterval(intervalRef.current)
     intervalRef.current = null
+    setIsRunning(false)
     setPhase('idle')
     setSecondsLeft(matchDuration * 60)
     setPopupType(null)
+    matchWarningShownRef.current = false
+    breakWarningShownRef.current = false
   }
 
-  // ============================================
-  // BOUTONS DE RACCOURCI : forcer fin match / fin pause
-  // ============================================
   const handleSkipToBreak = () => {
     clearInterval(intervalRef.current)
     intervalRef.current = null
-    playBeep()
+    setIsRunning(false)
+    playDoubleBeep()
     setPopupType('match-end')
     setPhase('match-ending')
     if (currentRound >= totalRounds) {
@@ -199,21 +207,19 @@ export default function MatchTimer({
   const handleSkipToMatch = () => {
     clearInterval(intervalRef.current)
     intervalRef.current = null
-    playBeep()
+    setIsRunning(false)
+    playDoubleBeep()
     setPopupType('break-end')
     setPhase('break-ending')
     setTimeout(() => startMatchAuto(), 500)
   }
 
-  // ============================================
-  // RENDU
-  // ============================================
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0')
   const ss = String(secondsLeft % 60).padStart(2, '0')
 
   const isMatchPhase = phase === 'match'
   const isBreakPhase = phase === 'break'
-  const isRunning = intervalRef.current !== null
+  const isActivePhase = isMatchPhase || isBreakPhase
 
   return (
     <>
@@ -224,7 +230,7 @@ export default function MatchTimer({
             : isBreakPhase
             ? 'linear-gradient(135deg, var(--sand-warm) 0%, var(--coral) 100%)'
             : 'var(--bg-mid)',
-          color: isMatchPhase || isBreakPhase ? 'var(--bg-deep)' : 'var(--white)',
+          color: isActivePhase ? 'var(--bg-deep)' : 'var(--white)',
           borderRadius: 16,
           padding: 24,
           textAlign: 'center',
@@ -254,12 +260,29 @@ export default function MatchTimer({
             lineHeight: 1,
             letterSpacing: '0.05em',
             fontVariantNumeric: 'tabular-nums',
+            // ⭐ Visuel "pause" : on fait clignoter le timer en pause
+            opacity: isActivePhase && !isRunning ? 0.5 : 1,
+            transition: 'opacity 0.2s ease',
           }}
         >
           {mm}:{ss}
         </div>
 
-        {/* Indicateur durée configurée (mise à jour en direct si admin change) */}
+        {/* Indicateur "EN PAUSE" quand on a appuyé sur ⏸ */}
+        {isActivePhase && !isRunning && (
+          <div
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 11,
+              letterSpacing: '0.3em',
+              opacity: 0.7,
+              marginTop: 4,
+            }}
+          >
+            ⏸ EN PAUSE
+          </div>
+        )}
+
         <div
           style={{
             fontSize: 11,
@@ -281,12 +304,18 @@ export default function MatchTimer({
               ▶ Lancer le 1er match
             </button>
           )}
-          {(isMatchPhase || isBreakPhase) && isRunning && (
+
+          {/* ⭐ Quand actif ET en cours : bouton ⏸ Pause */}
+          {isActivePhase && isRunning && (
             <>
               <button
                 className="btn btn-ghost"
                 onClick={handlePause}
-                style={{ background: 'rgba(10,25,41,0.2)', color: 'inherit', borderColor: 'rgba(10,25,41,0.3)' }}
+                style={{
+                  background: 'rgba(10,25,41,0.2)',
+                  color: 'inherit',
+                  borderColor: 'rgba(10,25,41,0.3)',
+                }}
               >
                 ⏸ Pause
               </button>
@@ -294,7 +323,11 @@ export default function MatchTimer({
                 <button
                   className="btn btn-ghost"
                   onClick={handleSkipToBreak}
-                  style={{ background: 'rgba(10,25,41,0.2)', color: 'inherit', borderColor: 'rgba(10,25,41,0.3)' }}
+                  style={{
+                    background: 'rgba(10,25,41,0.2)',
+                    color: 'inherit',
+                    borderColor: 'rgba(10,25,41,0.3)',
+                  }}
                   title="Forcer la fin du match"
                 >
                   ⏭ Fin match
@@ -304,7 +337,11 @@ export default function MatchTimer({
                 <button
                   className="btn btn-ghost"
                   onClick={handleSkipToMatch}
-                  style={{ background: 'rgba(10,25,41,0.2)', color: 'inherit', borderColor: 'rgba(10,25,41,0.3)' }}
+                  style={{
+                    background: 'rgba(10,25,41,0.2)',
+                    color: 'inherit',
+                    borderColor: 'rgba(10,25,41,0.3)',
+                  }}
                   title="Forcer la fin de la pause"
                 >
                   ⏭ Fin pause
@@ -312,20 +349,31 @@ export default function MatchTimer({
               )}
             </>
           )}
-          {(isMatchPhase || isBreakPhase) && !isRunning && secondsLeft > 0 && (
+
+          {/* ⭐ Quand actif MAIS pas en cours (en pause) : bouton ▶ Reprendre */}
+          {isActivePhase && !isRunning && secondsLeft > 0 && (
             <button
-              className="btn btn-ghost"
+              className="btn btn-primary"
               onClick={handleResume}
-              style={{ background: 'rgba(10,25,41,0.2)', color: 'inherit', borderColor: 'rgba(10,25,41,0.3)' }}
+              style={{
+                background: 'var(--bg-deep)',
+                color: isMatchPhase ? 'var(--neon)' : 'var(--coral)',
+                fontSize: 18,
+              }}
             >
               ▶ Reprendre
             </button>
           )}
+
           {phase !== 'idle' && phase !== 'done' && (
             <button
               className="btn btn-ghost"
               onClick={handleReset}
-              style={{ background: 'rgba(10,25,41,0.2)', color: 'inherit', borderColor: 'rgba(10,25,41,0.3)' }}
+              style={{
+                background: 'rgba(10,25,41,0.2)',
+                color: 'inherit',
+                borderColor: 'rgba(10,25,41,0.3)',
+              }}
             >
               ↺ Reset
             </button>
@@ -333,11 +381,35 @@ export default function MatchTimer({
         </div>
       </div>
 
-      {/* Popup fin de match - se ferme tout seul ou manuellement */}
+      {/* POPUP : 5 MIN AVANT FIN DU MATCH */}
+      {popupType === 'match-warning' && (
+        <div className="modal-backdrop" onClick={handleClosePopup}>
+          <div className="modal-content" style={{ textAlign: 'center', maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: 64, marginBottom: 12 }}>⏰</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.25em', color: 'var(--sand-warm)', marginBottom: 8 }}>
+              🔔 1 COUP DE SIFFLET
+            </div>
+            <h2 className="h-display" style={{ fontSize: 36, marginBottom: 8, color: 'var(--neon)' }}>
+              5 MINUTES
+            </h2>
+            <p style={{ color: 'var(--gray)', marginBottom: 24 }}>
+              Plus que 5 minutes avant la fin du match.
+            </p>
+            <button className="btn btn-primary" onClick={handleClosePopup} style={{ width: '100%' }}>
+              ✓ OK
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* POPUP : FIN DU MATCH */}
       {popupType === 'match-end' && (
         <div className="modal-backdrop" onClick={handleClosePopup}>
           <div className="modal-content" style={{ textAlign: 'center', maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
             <div style={{ fontSize: 64, marginBottom: 12 }}>🎾</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.25em', color: 'var(--sand-warm)', marginBottom: 8 }}>
+              🔔🔔 2 COUPS DE SIFFLET
+            </div>
             <h2 className="h-display" style={{ fontSize: 36, marginBottom: 8 }}>
               FIN DU MATCH
             </h2>
@@ -347,33 +419,49 @@ export default function MatchTimer({
                 ? ' Tournoi terminé !'
                 : ` Pause de ${breakDuration} min lancée automatiquement.`}
             </p>
-            <button
-              className="btn btn-primary"
-              onClick={handleClosePopup}
-              style={{ width: '100%' }}
-            >
+            <button className="btn btn-primary" onClick={handleClosePopup} style={{ width: '100%' }}>
               ✓ OK
             </button>
           </div>
         </div>
       )}
 
-      {/* Popup fin de pause - se ferme tout seul ou manuellement */}
+      {/* POPUP : 2 MIN AVANT FIN DE PAUSE */}
+      {popupType === 'break-warning' && (
+        <div className="modal-backdrop" onClick={handleClosePopup}>
+          <div className="modal-content" style={{ textAlign: 'center', maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: 64, marginBottom: 12 }}>☕</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.25em', color: 'var(--sand-warm)', marginBottom: 8 }}>
+              🔔 1 COUP DE SIFFLET
+            </div>
+            <h2 className="h-display" style={{ fontSize: 36, marginBottom: 8, color: 'var(--coral)' }}>
+              2 MINUTES
+            </h2>
+            <p style={{ color: 'var(--gray)', marginBottom: 24 }}>
+              Plus que 2 minutes de pause. Préparez-vous à reprendre les terrains !
+            </p>
+            <button className="btn btn-primary" onClick={handleClosePopup} style={{ width: '100%' }}>
+              ✓ OK
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* POPUP : REPRISE DES MATCHS */}
       {popupType === 'break-end' && (
         <div className="modal-backdrop" onClick={handleClosePopup}>
           <div className="modal-content" style={{ textAlign: 'center', maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
             <div style={{ fontSize: 64, marginBottom: 12 }}>🔔</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.25em', color: 'var(--sand-warm)', marginBottom: 8 }}>
+              🔔🔔 2 COUPS DE SIFFLET
+            </div>
             <h2 className="h-display" style={{ fontSize: 36, marginBottom: 8 }}>
-              FIN DE LA PAUSE
+              REPRISE DES MATCHS
             </h2>
             <p style={{ color: 'var(--gray)', marginBottom: 24 }}>
               Place sur les terrains ! Round {currentRound} lancé automatiquement.
             </p>
-            <button
-              className="btn btn-primary"
-              onClick={handleClosePopup}
-              style={{ width: '100%' }}
-            >
+            <button className="btn btn-primary" onClick={handleClosePopup} style={{ width: '100%' }}>
               ✓ OK
             </button>
           </div>
