@@ -6,7 +6,7 @@
 // Cette config est commitée publiquement : la anon key est sécurisée par RLS.
 
 export const SUPABASE_URL = 'https://yzxpgczginqxpsiwoqtk.supabase.co'
-export const SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl6eHBnY3pnaW5xeHBzaXdvcXRrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4NDA5ODksImV4cCI6MjA5NDQxNjk4OX0.MgMcKODGPEYjBe90QQ1dGatKl0dPo3cqTIO4hJBzLTI
+export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl6eHBnY3pnaW5xeHBzaXdvcXRrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4NDA5ODksImV4cCI6MjA5NDQxNjk4OX0.MgMcKODGPEYjBe90QQ1dGatKl0dPo3cqTIO4hJBzLTI'
 
 // ============================================
 // CONFIGURATION ADMIN
