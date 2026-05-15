@@ -23,13 +23,11 @@ export default function TournamentPage() {
   const [showDrawModal, setShowDrawModal] = useState(false)
   const [currentRound, setCurrentRound] = useState(1)
 
-  // Form ajout équipe
   const [p1, setP1] = useState('')
   const [p2, setP2] = useState('')
 
   useEffect(() => {
     loadAll()
-    // Realtime
     const ch = supabase
       .channel(`tournament-${id}`)
       .on(
@@ -81,9 +79,6 @@ export default function TournamentPage() {
     if (data) setMatches(data)
   }
 
-  // ============================================
-  // ACTIONS
-  // ============================================
   const updateSetup = async (patch) => {
     await supabase.from('tournaments').update(patch).eq('id', id)
   }
@@ -109,7 +104,6 @@ export default function TournamentPage() {
   }
 
   const drawTeamsOrder = async () => {
-    // Mélange l'ordre d'affichage seulement (visuel) — l'ordre n'a pas d'impact réel sur le planning
     const shuffled = shuffleTeams(teams)
     alert(
       'Ordre tiré au sort :\n\n' +
@@ -129,9 +123,7 @@ export default function TournamentPage() {
       return
 
     const newPairs = shufflePlayers(teams)
-    // Delete existing
     await supabase.from('teams').delete().eq('tournament_id', id)
-    // Insert new
     await supabase.from('teams').insert(
       newPairs.map((p) => ({
         tournament_id: id,
@@ -159,7 +151,6 @@ export default function TournamentPage() {
     }
     const schedule = generateSchedule(teams, tournament.num_courts, numRounds)
 
-    // Supprimer anciens matchs et insérer les nouveaux
     await supabase.from('matches').delete().eq('tournament_id', id)
     await supabase.from('matches').insert(
       schedule.map((m) => ({
@@ -236,9 +227,6 @@ export default function TournamentPage() {
   const finishedRounds = [...new Set(matches.filter((m) => m.is_finished).map((m) => m.round_number))]
   const standings = computeStandings(teams, matches)
 
-  // ============================================
-  // RENDER
-  // ============================================
   return (
     <main className="container">
       {/* En-tête tournoi */}
@@ -281,9 +269,7 @@ export default function TournamentPage() {
         </div>
       </div>
 
-      {/* ============================================
-          ÉTAPE 1 : SETUP
-          ============================================ */}
+      {/* SETUP */}
       {tournament.status === 'setup' && (
         <>
           <SetupPanel
@@ -305,7 +291,6 @@ export default function TournamentPage() {
             onOpenDraw={() => setShowDrawModal(true)}
           />
 
-          {/* Bouton lancer */}
           {isAdmin && (
             <div className="card" style={{ marginTop: 24, textAlign: 'center' }}>
               <div style={{ marginBottom: 16, color: 'var(--gray)' }}>
@@ -330,21 +315,16 @@ export default function TournamentPage() {
         </>
       )}
 
-      {/* ============================================
-          ÉTAPE 2 : RUNNING
-          ============================================ */}
+      {/* RUNNING */}
       {tournament.status === 'running' && (
         <>
-          {/* Timer */}
           {isAdmin && (
             <MatchTimer
               matchDuration={tournament.match_duration_minutes}
               breakDuration={tournament.break_duration_minutes}
               currentRound={currentRound}
               totalRounds={totalRounds}
-              onMatchEnd={() => {
-                // rien, on attend que l'admin saisisse les scores
-              }}
+              onMatchEnd={() => {}}
               onBreakEnd={() => setCurrentRound((r) => Math.min(r + 1, totalRounds))}
             />
           )}
@@ -355,7 +335,7 @@ export default function TournamentPage() {
               display: 'flex',
               gap: 8,
               marginTop: 24,
-              marginBottom: 16,
+              marginBottom: 20,
               overflowX: 'auto',
               paddingBottom: 8,
             }}
@@ -384,19 +364,18 @@ export default function TournamentPage() {
             })}
           </div>
 
-          {/* Matchs du round courant */}
-          <RoundMatches
+          {/* Matchs du round courant - PAR COLONNE TERRAIN */}
+          <CourtsLayout
             matches={matches.filter((m) => m.round_number === currentRound)}
             teams={teams}
             isAdmin={isAdmin}
             updateScore={updateScore}
             toggleMatchFinished={toggleMatchFinished}
+            numCourts={tournament.num_courts}
           />
 
-          {/* Classement */}
           <Standings standings={standings} />
 
-          {/* Actions admin */}
           {isAdmin && (
             <div style={{ display: 'flex', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
               <button className="btn btn-secondary" onClick={backToSetup}>
@@ -410,9 +389,7 @@ export default function TournamentPage() {
         </>
       )}
 
-      {/* ============================================
-          ÉTAPE 3 : FINISHED
-          ============================================ */}
+      {/* FINISHED */}
       {tournament.status === 'finished' && (
         <>
           <div className="card" style={{ textAlign: 'center', marginBottom: 24 }}>
@@ -429,7 +406,6 @@ export default function TournamentPage() {
 
           <Standings standings={standings} />
 
-          {/* Détail des matchs par round */}
           <h3 className="h-display" style={{ fontSize: 24, marginTop: 32, marginBottom: 16 }}>
             DÉTAIL DES MATCHS
           </h3>
@@ -438,11 +414,12 @@ export default function TournamentPage() {
               <h4 style={{ marginBottom: 12, color: 'var(--sand-warm)', fontFamily: 'var(--font-display)', fontSize: 20 }}>
                 ROUND {r}
               </h4>
-              <RoundMatches
+              <CourtsLayout
                 matches={matches.filter((m) => m.round_number === r)}
                 teams={teams}
                 isAdmin={false}
                 readOnly
+                numCourts={tournament.num_courts}
               />
             </div>
           ))}
@@ -457,9 +434,7 @@ export default function TournamentPage() {
         </>
       )}
 
-      {/* ============================================
-          MODAL TIRAGE AU SORT
-          ============================================ */}
+      {/* MODAL TIRAGE */}
       {showDrawModal && (
         <div className="modal-backdrop" onClick={() => setShowDrawModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -521,7 +496,7 @@ function SetupPanel({ tournament, onUpdate, isAdmin, numRoundsPossible }) {
         ⚙ CONFIGURATION
       </h2>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16 }}>
         <div>
           <label className="label">Durée totale (min)</label>
           <input
@@ -681,98 +656,192 @@ function TeamsPanel({ teams, isAdmin, p1, p2, setP1, setP2, addTeam, deleteTeam,
   )
 }
 
-function RoundMatches({ matches, teams, isAdmin, updateScore, toggleMatchFinished, readOnly }) {
+/**
+ * Layout en colonnes par terrain : Terrain 1 | Terrain 2 | Terrain 3 ...
+ */
+function CourtsLayout({ matches, teams, isAdmin, updateScore, toggleMatchFinished, readOnly, numCourts }) {
   const teamById = (tid) => teams.find((t) => t.id === tid)
 
   if (matches.length === 0) {
     return <div style={{ padding: 32, textAlign: 'center', color: 'var(--gray)' }}>Aucun match</div>
   }
 
+  // Détermine combien de terrains affichés (en fait : les terrains qui ont au moins un match)
+  const courtsUsed = [...new Set(matches.map((m) => m.court_number))].sort((a, b) => a - b)
+
   return (
-    <div style={{ display: 'grid', gap: 12 }}>
-      {matches.map((m) => {
-        const teamA = teamById(m.team_a_id)
-        const teamB = teamById(m.team_b_id)
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: `repeat(${courtsUsed.length}, minmax(0, 1fr))`,
+        gap: 12,
+      }}
+    >
+      {courtsUsed.map((courtNum) => {
+        const courtMatches = matches.filter((m) => m.court_number === courtNum)
         return (
-          <div
-            key={m.id}
-            className="card"
-            style={{
-              padding: 16,
-              background: m.is_finished ? 'rgba(46, 213, 115, 0.08)' : 'var(--bg-mid)',
-              borderColor: m.is_finished ? 'rgba(46, 213, 115, 0.3)' : 'var(--line)',
-            }}
-          >
+          <div key={courtNum}>
+            {/* En-tête terrain */}
             <div
               style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: 12,
+                background: 'var(--bg-mid)',
+                border: '1px solid var(--line)',
+                borderRadius: '12px 12px 0 0',
+                padding: '10px 14px',
+                textAlign: 'center',
+                fontFamily: 'var(--font-display)',
+                fontSize: 16,
+                letterSpacing: '0.15em',
+                color: 'var(--neon)',
+                borderBottom: 'none',
               }}
             >
-              <span
-                className="badge"
-                style={{ background: 'rgba(212, 255, 58, 0.2)' }}
-              >
-                TERRAIN {m.court_number}
-              </span>
-              {m.is_finished && <span style={{ color: 'var(--success)', fontSize: 14 }}>✓ Terminé</span>}
+              🎾 TERRAIN {courtNum}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 12, alignItems: 'center' }}>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontWeight: 600 }}>{teamA?.player1_name}</div>
-                <div style={{ color: 'var(--gray)', fontSize: 13 }}>{teamA?.player2_name}</div>
-              </div>
-
-              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                {isAdmin && !readOnly ? (
-                  <>
-                    <input
-                      className="input"
-                      type="number"
-                      min="0"
-                      value={m.score_a}
-                      onChange={(e) => updateScore(m.id, 'score_a', e.target.value)}
-                      style={{ width: 56, padding: 8, fontSize: 22, textAlign: 'center', fontFamily: 'var(--font-display)' }}
-                    />
-                    <span style={{ color: 'var(--gray)' }}>–</span>
-                    <input
-                      className="input"
-                      type="number"
-                      min="0"
-                      value={m.score_b}
-                      onChange={(e) => updateScore(m.id, 'score_b', e.target.value)}
-                      style={{ width: 56, padding: 8, fontSize: 22, textAlign: 'center', fontFamily: 'var(--font-display)' }}
-                    />
-                  </>
-                ) : (
-                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 32, letterSpacing: '0.08em' }}>
-                    {m.score_a} <span style={{ color: 'var(--gray)' }}>–</span> {m.score_b}
-                  </div>
-                )}
-              </div>
-
-              <div style={{ textAlign: 'left' }}>
-                <div style={{ fontWeight: 600 }}>{teamB?.player1_name}</div>
-                <div style={{ color: 'var(--gray)', fontSize: 13 }}>{teamB?.player2_name}</div>
-              </div>
+            {/* Matchs */}
+            <div
+              style={{
+                display: 'grid',
+                gap: 8,
+                border: '1px solid var(--line)',
+                borderTop: 'none',
+                borderRadius: '0 0 12px 12px',
+                padding: 8,
+                background: 'rgba(17, 42, 64, 0.4)',
+              }}
+            >
+              {courtMatches.map((m) => {
+                const teamA = teamById(m.team_a_id)
+                const teamB = teamById(m.team_b_id)
+                return (
+                  <CourtMatchCard
+                    key={m.id}
+                    match={m}
+                    teamA={teamA}
+                    teamB={teamB}
+                    isAdmin={isAdmin}
+                    readOnly={readOnly}
+                    updateScore={updateScore}
+                    toggleMatchFinished={toggleMatchFinished}
+                  />
+                )
+              })}
             </div>
-
-            {isAdmin && !readOnly && (
-              <div style={{ marginTop: 12, textAlign: 'center' }}>
-                <button
-                  className={m.is_finished ? 'btn btn-ghost btn-small' : 'btn btn-primary btn-small'}
-                  onClick={() => toggleMatchFinished(m)}
-                >
-                  {m.is_finished ? '↺ Rouvrir' : '✓ Valider le score'}
-                </button>
-              </div>
-            )}
           </div>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * Carte d'un match dans une colonne terrain (compact, vertical)
+ */
+function CourtMatchCard({ match, teamA, teamB, isAdmin, readOnly, updateScore, toggleMatchFinished }) {
+  return (
+    <div
+      style={{
+        background: match.is_finished ? 'rgba(46, 213, 115, 0.08)' : 'var(--bg-deep)',
+        border: `1px solid ${match.is_finished ? 'rgba(46, 213, 115, 0.3)' : 'var(--line)'}`,
+        borderRadius: 10,
+        padding: 10,
+      }}
+    >
+      {/* Équipe A */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {teamA?.player1_name}
+          </div>
+          <div style={{ color: 'var(--gray)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {teamA?.player2_name}
+          </div>
+        </div>
+        {isAdmin && !readOnly ? (
+          <input
+            className="input"
+            type="number"
+            min="0"
+            value={match.score_a}
+            onChange={(e) => updateScore(match.id, 'score_a', e.target.value)}
+            style={{
+              width: 44,
+              padding: '4px 6px',
+              fontSize: 18,
+              textAlign: 'center',
+              fontFamily: 'var(--font-display)',
+            }}
+          />
+        ) : (
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, minWidth: 24, textAlign: 'center' }}>
+            {match.score_a}
+          </div>
+        )}
+      </div>
+
+      {/* Séparateur */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '6px 0' }}>
+        <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+        <span style={{ color: 'var(--gray)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.2em' }}>VS</span>
+        <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+      </div>
+
+      {/* Équipe B */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {teamB?.player1_name}
+          </div>
+          <div style={{ color: 'var(--gray)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {teamB?.player2_name}
+          </div>
+        </div>
+        {isAdmin && !readOnly ? (
+          <input
+            className="input"
+            type="number"
+            min="0"
+            value={match.score_b}
+            onChange={(e) => updateScore(match.id, 'score_b', e.target.value)}
+            style={{
+              width: 44,
+              padding: '4px 6px',
+              fontSize: 18,
+              textAlign: 'center',
+              fontFamily: 'var(--font-display)',
+            }}
+          />
+        ) : (
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, minWidth: 24, textAlign: 'center' }}>
+            {match.score_b}
+          </div>
+        )}
+      </div>
+
+      {/* Bouton valider / statut */}
+      {isAdmin && !readOnly && (
+        <button
+          onClick={() => toggleMatchFinished(match)}
+          style={{
+            width: '100%',
+            marginTop: 8,
+            padding: '6px',
+            fontSize: 11,
+            fontFamily: 'var(--font-display)',
+            letterSpacing: '0.1em',
+            borderRadius: 6,
+            background: match.is_finished ? 'transparent' : 'var(--neon)',
+            color: match.is_finished ? 'var(--gray)' : 'var(--bg-deep)',
+            border: match.is_finished ? '1px solid var(--line)' : 'none',
+          }}
+        >
+          {match.is_finished ? '↺ ROUVRIR' : '✓ VALIDER'}
+        </button>
+      )}
+      {readOnly && match.is_finished && (
+        <div style={{ textAlign: 'center', marginTop: 6, color: 'var(--success)', fontSize: 11 }}>✓ Terminé</div>
+      )}
     </div>
   )
 }
