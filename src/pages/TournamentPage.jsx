@@ -214,6 +214,27 @@ export default function TournamentPage() {
             {isAdmin && (
               <button onClick={() => setEditingName(true)} style={{ background: 'transparent', border: '1px solid var(--line)', borderRadius: 6, padding: '4px 8px', color: 'var(--sand-warm)', fontSize: 14, cursor: 'pointer' }} title="Renommer">✏️</button>
             )}
+            {/* ⭐ NOUVEAU : bouton Règlement à côté du titre */}
+            <Link
+              to={`/rules/${id}`}
+              style={{
+                background: 'transparent',
+                border: '1px solid var(--neon)',
+                borderRadius: 6,
+                padding: '6px 12px',
+                color: 'var(--neon)',
+                fontSize: 13,
+                fontFamily: 'var(--font-display)',
+                letterSpacing: '0.1em',
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+              title="Voir le règlement de ce tournoi"
+            >
+              📄 RÈGLEMENT
+            </Link>
           </div>
           <div style={{ color: 'var(--gray)', marginTop: 4 }}>
             {new Date(tournament.tournament_date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
@@ -493,9 +514,6 @@ function CourtsLayout({ matches, teams, isAdmin, updateScore, toggleMatchFinishe
 }
 
 function CourtMatchCard({ match, teamA, teamB, isAdmin, readOnly, updateScore, toggleMatchFinished }) {
-  // ============================================
-  // Style des inputs de score (AGRANDIS)
-  // ============================================
   const scoreInputStyle = {
     width: 60,
     padding: '10px 8px',
@@ -515,7 +533,6 @@ function CourtMatchCard({ match, teamA, teamB, isAdmin, readOnly, updateScore, t
 
   return (
     <div style={{ background: match.is_finished ? 'rgba(46, 213, 115, 0.08)' : 'var(--bg-deep)', border: `1px solid ${match.is_finished ? 'rgba(46, 213, 115, 0.3)' : 'var(--line)'}`, borderRadius: 10, padding: 10 }}>
-      {/* Équipe A */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{teamA?.player1_name}</div>
@@ -538,14 +555,12 @@ function CourtMatchCard({ match, teamA, teamB, isAdmin, readOnly, updateScore, t
         )}
       </div>
 
-      {/* Séparateur VS */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0' }}>
         <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
         <span style={{ color: 'var(--gray)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.2em' }}>VS</span>
         <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
       </div>
 
-      {/* Équipe B */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{teamB?.player1_name}</div>
@@ -568,7 +583,6 @@ function CourtMatchCard({ match, teamA, teamB, isAdmin, readOnly, updateScore, t
         )}
       </div>
 
-      {/* Bouton valider */}
       {isAdmin && !readOnly && (
         <button
           onClick={() => toggleMatchFinished(match)}
