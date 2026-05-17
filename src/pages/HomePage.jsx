@@ -238,16 +238,10 @@ export default function HomePage() {
           <Link to="/history" className="btn btn-secondary" style={{ fontSize: 18 }}>
             📅 Historique
           </Link>
-          {/* NOUVEAU : Bouton Règlement (ouvre le PDF dans un nouvel onglet) */}
-          <a
-            href="/Reglement-Tournoi-Padel-Doha.pdf"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn btn-secondary"
-            style={{ fontSize: 18, textDecoration: 'none' }}
-          >
+          {/* Bouton règlement -> page dynamique */}
+          <Link to="/rules" className="btn btn-secondary" style={{ fontSize: 18 }}>
             📄 Règlement
-          </a>
+          </Link>
         </div>
 
         {!isAdmin && (
@@ -281,12 +275,8 @@ export default function HomePage() {
                       cursor: 'pointer',
                       transition: 'all 0.2s ease',
                     }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.borderColor = 'var(--neon)')
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.borderColor = 'var(--line)')
-                    }
+                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--neon)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--line)')}
                   >
                     <div>
                       <div className="h-display" style={{ fontSize: 20, marginBottom: 4 }}>
