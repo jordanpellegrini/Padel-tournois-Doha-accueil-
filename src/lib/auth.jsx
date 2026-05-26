@@ -77,6 +77,57 @@ export function AuthProvider({ children }) {
 
   const logout = () => persist(null)
 
+  /**
+   * Inscription d'un nouvel organisateur avec un code d'invitation.
+   * Vérifie que le code existe, que l'identifiant est libre, puis crée le compte.
+   * Retourne { success: true } ou { success: false, error: '...' }
+   */
+  const register = async (inviteCode, username, password, displayName) => {
+    const code = (inviteCode || '').trim()
+    const u = (username || '').trim()
+    const p = (password || '').trim()
+    if (!code || !u || !p) return { success: false, error: 'Tous les champs sont requis' }
+
+    // L'identifiant ne doit pas être celui du super-admin
+    if (u.toLowerCase() === ADMIN_USERNAME.toLowerCase()) {
+      return { success: false, error: 'Cet identifiant est réservé' }
+    }
+
+    // 1) Vérifie le code d'invitation
+    const { data: codes, error: codeErr } = await supabase
+      .from('invite_codes')
+      .select('*')
+      .eq('code', code)
+      .limit(1)
+    if (codeErr) return { success: false, error: 'Erreur serveur' }
+    if (!codes || codes.length === 0) {
+      return { success: false, error: "Code d'invitation invalide" }
+    }
+
+    // 2) Vérifie que l'identifiant est libre
+    const { data: existing } = await supabase
+      .from('organizers')
+      .select('id')
+      .ilike('username', u)
+      .limit(1)
+    if (existing && existing.length > 0) {
+      return { success: false, error: 'Cet identifiant existe déjà, choisis-en un autre' }
+    }
+
+    // 3) Crée le compte
+    const { error: insErr } = await supabase.from('organizers').insert({
+      username: u,
+      password: p,
+      display_name: (displayName || '').trim() || u,
+    })
+    if (insErr) return { success: false, error: 'Erreur : ' + insErr.message }
+
+    // 4) Connecte directement la personne
+    const user = { username: u, role: 'organizer', displayName: (displayName || '').trim() || u }
+    persist(user)
+    return { success: true }
+  }
+
   // Helpers de droits
   const isAdmin = !!currentUser // connecté = peut gérer (admin au sens large)
   const isSuperAdmin = currentUser?.role === 'superadmin'
@@ -99,6 +150,7 @@ export function AuthProvider({ children }) {
         currentUser,
         ready,
         login,
+        register,
         logout,
         isAdmin,
         isSuperAdmin,

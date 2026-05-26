@@ -1,54 +1,58 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import { supabase } from '../lib/supabase'
 
 export default function Header() {
-  const { currentUser, isSuperAdmin, login, logout } = useAuth()
-  const [showLogin, setShowLogin] = useState(false)
+  const { currentUser, isSuperAdmin, login, register, logout } = useAuth()
+  const [showAuth, setShowAuth] = useState(false)
   const [showManage, setShowManage] = useState(false)
+  const [mode, setMode] = useState('login') // 'login' | 'register'
+
+  // Champs login
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  // Champs inscription
+  const [regCode, setRegCode] = useState('')
+  const [regName, setRegName] = useState('')
+  const [regUsername, setRegUsername] = useState('')
+  const [regPassword, setRegPassword] = useState('')
+
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  const handleLogin = async () => {
-    setSubmitting(true)
+  const resetForm = () => {
+    setUsername(''); setPassword('')
+    setRegCode(''); setRegName(''); setRegUsername(''); setRegPassword('')
     setError('')
+  }
+
+  const closeAuth = () => {
+    setShowAuth(false)
+    resetForm()
+    setMode('login')
+  }
+
+  const handleLogin = async () => {
+    setSubmitting(true); setError('')
     const res = await login(username, password)
     setSubmitting(false)
-    if (res.success) {
-      setShowLogin(false)
-      setUsername('')
-      setPassword('')
-    } else {
-      setError(res.error || 'Connexion impossible')
-    }
+    if (res.success) closeAuth()
+    else setError(res.error || 'Connexion impossible')
+  }
+
+  const handleRegister = async () => {
+    setSubmitting(true); setError('')
+    const res = await register(regCode, regUsername, regPassword, regName)
+    setSubmitting(false)
+    if (res.success) closeAuth()
+    else setError(res.error || 'Inscription impossible')
   }
 
   return (
     <>
-      <header
-        className="app-header"
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 50,
-          background: 'rgba(10, 25, 41, 0.85)',
-          backdropFilter: 'blur(10px)',
-          borderBottom: '1px solid var(--line)',
-        }}
-      >
-        <div
-          style={{
-            maxWidth: 1100,
-            margin: '0 auto',
-            padding: '12px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-          }}
-        >
+      <header className="app-header" style={{ position: 'sticky', top: 0, zIndex: 50, background: 'rgba(10, 25, 41, 0.85)', backdropFilter: 'blur(10px)', borderBottom: '1px solid var(--line)' }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto', padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 24 }}>🎾</span>
             <span className="h-display" style={{ fontSize: 22, color: 'var(--white)', letterSpacing: '0.05em' }}>
@@ -63,16 +67,14 @@ export default function Header() {
                   {isSuperAdmin ? '👑' : '👤'} {currentUser.displayName}
                 </span>
                 {isSuperAdmin && (
-                  <button className="btn btn-ghost btn-small" onClick={() => setShowManage(true)} title="Gérer les organisateurs">
-                    ⚙ Organisateurs
+                  <button className="btn btn-ghost btn-small" onClick={() => setShowManage(true)} title="Gérer les organisateurs et codes">
+                    ⚙ Gérer
                   </button>
                 )}
-                <button className="btn btn-ghost btn-small" onClick={logout}>
-                  Déconnexion
-                </button>
+                <button className="btn btn-ghost btn-small" onClick={logout}>Déconnexion</button>
               </>
             ) : (
-              <button className="btn btn-secondary btn-small" onClick={() => setShowLogin(true)}>
+              <button className="btn btn-secondary btn-small" onClick={() => setShowAuth(true)}>
                 🔑 Connexion
               </button>
             )}
@@ -80,115 +82,117 @@ export default function Header() {
         </div>
       </header>
 
-      {/* MODALE DE CONNEXION */}
-      {showLogin && (
-        <div className="modal-backdrop" onClick={() => setShowLogin(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
-            <h2 className="h-display" style={{ fontSize: 28, marginBottom: 8 }}>CONNEXION</h2>
-            <p style={{ color: 'var(--gray)', marginBottom: 20, fontSize: 14 }}>
-              Espace organisateur
-            </p>
+      {/* MODALE CONNEXION / INSCRIPTION */}
+      {showAuth && (
+        <div className="modal-backdrop" onClick={closeAuth}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            {/* Onglets */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+              <button
+                onClick={() => { setMode('login'); setError('') }}
+                style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-display)', letterSpacing: '0.05em', fontSize: 14, background: mode === 'login' ? 'var(--neon)' : 'var(--bg-deep)', color: mode === 'login' ? 'var(--bg-deep)' : 'var(--gray)' }}
+              >
+                SE CONNECTER
+              </button>
+              <button
+                onClick={() => { setMode('register'); setError('') }}
+                style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-display)', letterSpacing: '0.05em', fontSize: 14, background: mode === 'register' ? 'var(--neon)' : 'var(--bg-deep)', color: mode === 'register' ? 'var(--bg-deep)' : 'var(--gray)' }}
+              >
+                CRÉER UN COMPTE
+              </button>
+            </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div>
-                <label className="label">Identifiant</label>
-                <input
-                  className="input"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-                  autoFocus
-                  autoComplete="username"
-                />
-              </div>
-              <div>
-                <label className="label">Mot de passe</label>
-                <input
-                  className="input"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-                  autoComplete="current-password"
-                />
-              </div>
-
-              {error && (
-                <div style={{ color: 'var(--danger)', fontSize: 13, padding: '8px 12px', background: 'rgba(255,71,87,0.1)', borderRadius: 8 }}>
-                  ⚠️ {error}
+            {mode === 'login' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label className="label">Identifiant</label>
+                  <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} autoFocus autoComplete="username" />
                 </div>
-              )}
-
-              <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
-                <button className="btn btn-primary" onClick={handleLogin} disabled={submitting} style={{ flex: 1 }}>
+                <div>
+                  <label className="label">Mot de passe</label>
+                  <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} autoComplete="current-password" />
+                </div>
+                {error && <div style={{ color: 'var(--danger)', fontSize: 13, padding: '8px 12px', background: 'rgba(255,71,87,0.1)', borderRadius: 8 }}>⚠️ {error}</div>}
+                <button className="btn btn-primary" onClick={handleLogin} disabled={submitting}>
                   {submitting ? '⏳...' : 'Se connecter'}
                 </button>
-                <button className="btn btn-ghost" onClick={() => setShowLogin(false)}>Annuler</button>
               </div>
-            </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <p style={{ color: 'var(--gray)', fontSize: 13, margin: 0 }}>
+                  Entre le code d'invitation fourni par l'organisateur principal pour créer ton compte.
+                </p>
+                <div>
+                  <label className="label">Code d'invitation</label>
+                  <input className="input" value={regCode} onChange={(e) => setRegCode(e.target.value)} placeholder="ex: DOHA2026" autoFocus />
+                </div>
+                <div>
+                  <label className="label">Ton nom (affiché)</label>
+                  <input className="input" value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="Marie Dupont" />
+                </div>
+                <div>
+                  <label className="label">Identifiant de connexion</label>
+                  <input className="input" value={regUsername} onChange={(e) => setRegUsername(e.target.value)} placeholder="marie" autoComplete="off" />
+                </div>
+                <div>
+                  <label className="label">Mot de passe</label>
+                  <input className="input" type="password" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRegister()} autoComplete="off" />
+                </div>
+                {error && <div style={{ color: 'var(--danger)', fontSize: 13, padding: '8px 12px', background: 'rgba(255,71,87,0.1)', borderRadius: 8 }}>⚠️ {error}</div>}
+                <button className="btn btn-primary" onClick={handleRegister} disabled={submitting}>
+                  {submitting ? '⏳...' : '✓ Créer mon compte'}
+                </button>
+              </div>
+            )}
+
+            <button className="btn btn-ghost" onClick={closeAuth} style={{ width: '100%', marginTop: 16 }}>Annuler</button>
           </div>
         </div>
       )}
 
-      {/* MODALE GESTION DES ORGANISATEURS (super-admin uniquement) */}
-      {showManage && isSuperAdmin && (
-        <ManageOrganizers onClose={() => setShowManage(false)} />
-      )}
+      {/* MODALE GESTION (super-admin) */}
+      {showManage && isSuperAdmin && <ManagePanel onClose={() => setShowManage(false)} />}
     </>
   )
 }
 
 // ============================================
-// GESTION DES ORGANISATEURS (super-admin)
+// PANNEAU DE GESTION (super-admin) : organisateurs + codes
 // ============================================
-import { useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+function ManagePanel({ onClose }) {
+  const [tab, setTab] = useState('organizers') // 'organizers' | 'codes'
 
-function ManageOrganizers({ onClose }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <h2 className="h-display" style={{ fontSize: 26, marginBottom: 16 }}>⚙ GESTION</h2>
+
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+          <button onClick={() => setTab('organizers')} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: 13, letterSpacing: '0.05em', background: tab === 'organizers' ? 'var(--neon)' : 'var(--bg-deep)', color: tab === 'organizers' ? 'var(--bg-deep)' : 'var(--gray)' }}>
+            👤 ORGANISATEURS
+          </button>
+          <button onClick={() => setTab('codes')} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: 13, letterSpacing: '0.05em', background: tab === 'codes' ? 'var(--neon)' : 'var(--bg-deep)', color: tab === 'codes' ? 'var(--bg-deep)' : 'var(--gray)' }}>
+            🎟 CODES
+          </button>
+        </div>
+
+        {tab === 'organizers' ? <OrganizersTab /> : <CodesTab />}
+
+        <button className="btn btn-ghost" onClick={onClose} style={{ width: '100%', marginTop: 20 }}>Fermer</button>
+      </div>
+    </div>
+  )
+}
+
+function OrganizersTab() {
   const [organizers, setOrganizers] = useState([])
   const [loading, setLoading] = useState(true)
-  const [newUsername, setNewUsername] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [newDisplayName, setNewDisplayName] = useState('')
-  const [error, setError] = useState('')
 
-  useEffect(() => {
-    load()
-  }, [])
-
+  useEffect(() => { load() }, [])
   const load = async () => {
     const { data } = await supabase.from('organizers').select('*').order('created_at')
     if (data) setOrganizers(data)
     setLoading(false)
-  }
-
-  const addOrganizer = async () => {
-    setError('')
-    const u = newUsername.trim()
-    const p = newPassword.trim()
-    if (!u || !p) {
-      setError('Identifiant et mot de passe obligatoires')
-      return
-    }
-    // Vérifie l'unicité
-    const exists = organizers.some((o) => o.username.toLowerCase() === u.toLowerCase())
-    if (exists) {
-      setError('Cet identifiant existe déjà')
-      return
-    }
-    const { error: insErr } = await supabase.from('organizers').insert({
-      username: u,
-      password: p,
-      display_name: newDisplayName.trim() || u,
-    })
-    if (insErr) {
-      setError('Erreur : ' + insErr.message)
-      return
-    }
-    setNewUsername('')
-    setNewPassword('')
-    setNewDisplayName('')
-    load()
   }
 
   const deleteOrganizer = async (id, username) => {
@@ -198,72 +202,101 @@ function ManageOrganizers({ onClose }) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
-        <h2 className="h-display" style={{ fontSize: 28, marginBottom: 8 }}>
-          ⚙ GÉRER LES ORGANISATEURS
-        </h2>
-        <p style={{ color: 'var(--gray)', marginBottom: 20, fontSize: 14 }}>
-          Crée des comptes pour que d'autres personnes gèrent leurs propres tournois.
-        </p>
+    <div>
+      <p style={{ color: 'var(--gray)', fontSize: 13, marginBottom: 16 }}>
+        Les organisateurs créent leur compte eux-mêmes avec un code d'invitation. Tu peux les retirer ici.
+      </p>
+      {loading ? (
+        <div style={{ color: 'var(--gray)', padding: 20, textAlign: 'center' }}>Chargement...</div>
+      ) : organizers.length === 0 ? (
+        <div style={{ color: 'var(--gray)', padding: 20, textAlign: 'center', fontSize: 14 }}>Aucun organisateur inscrit.</div>
+      ) : (
+        <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
+          {organizers.map((o) => (
+            <div key={o.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-deep)', border: '1px solid var(--line)', borderRadius: 8 }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 600 }}>👤 {o.display_name || o.username}</div>
+                <div style={{ color: 'var(--gray)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>{o.username}</div>
+              </div>
+              <button onClick={() => deleteOrganizer(o.id, o.username)} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', fontSize: 20, cursor: 'pointer', padding: '4px 8px' }} title="Supprimer">🗑</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
-        {/* Formulaire d'ajout */}
-        <div style={{ background: 'var(--bg-deep)', border: '1px solid var(--line)', borderRadius: 10, padding: 16, marginBottom: 20 }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, color: 'var(--neon)', marginBottom: 12, letterSpacing: '0.05em' }}>
-            ➕ NOUVEL ORGANISATEUR
+function CodesTab() {
+  const [codes, setCodes] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [newCode, setNewCode] = useState('')
+  const [newLabel, setNewLabel] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => { load() }, [])
+  const load = async () => {
+    const { data } = await supabase.from('invite_codes').select('*').order('created_at')
+    if (data) setCodes(data)
+    setLoading(false)
+  }
+
+  const addCode = async () => {
+    setError('')
+    const c = newCode.trim()
+    if (!c) { setError('Entre un code'); return }
+    if (codes.some((x) => x.code.toLowerCase() === c.toLowerCase())) {
+      setError('Ce code existe déjà'); return
+    }
+    const { error: insErr } = await supabase.from('invite_codes').insert({ code: c, label: newLabel.trim() || null })
+    if (insErr) { setError('Erreur : ' + insErr.message); return }
+    setNewCode(''); setNewLabel(''); load()
+  }
+
+  const deleteCode = async (id, code) => {
+    if (!confirm(`Supprimer le code "${code}" ? Les nouvelles inscriptions avec ce code seront refusées.`)) return
+    await supabase.from('invite_codes').delete().eq('id', id)
+    load()
+  }
+
+  return (
+    <div>
+      <p style={{ color: 'var(--gray)', fontSize: 13, marginBottom: 16 }}>
+        Communique un de ces codes aux personnes que tu veux autoriser à créer un compte organisateur.
+      </p>
+
+      <div style={{ background: 'var(--bg-deep)', border: '1px solid var(--line)', borderRadius: 10, padding: 16, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+          <div>
+            <label className="label">Nouveau code</label>
+            <input className="input" value={newCode} onChange={(e) => setNewCode(e.target.value)} placeholder="ex: PADEL2026" />
           </div>
-          <div style={{ display: 'grid', gap: 10 }}>
-            <div>
-              <label className="label">Nom affiché (ex: Marie)</label>
-              <input className="input" value={newDisplayName} onChange={(e) => setNewDisplayName(e.target.value)} placeholder="Marie Dupont" />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>
-                <label className="label">Identifiant</label>
-                <input className="input" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder="marie" autoComplete="off" />
-              </div>
-              <div>
-                <label className="label">Mot de passe</label>
-                <input className="input" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="••••••" autoComplete="off" />
-              </div>
-            </div>
-            {error && (
-              <div style={{ color: 'var(--danger)', fontSize: 13 }}>⚠️ {error}</div>
-            )}
-            <button className="btn btn-primary" onClick={addOrganizer}>➕ Ajouter</button>
+          <div>
+            <label className="label">Note (optionnel)</label>
+            <input className="input" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="ex: Tournoi de mai" />
           </div>
         </div>
-
-        {/* Liste des organisateurs */}
-        <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, color: 'var(--sand)', marginBottom: 12, letterSpacing: '0.05em' }}>
-          ORGANISATEURS ({organizers.length})
-        </div>
-        {loading ? (
-          <div style={{ color: 'var(--gray)', padding: 20, textAlign: 'center' }}>Chargement...</div>
-        ) : organizers.length === 0 ? (
-          <div style={{ color: 'var(--gray)', padding: 20, textAlign: 'center', fontSize: 14 }}>
-            Aucun organisateur pour le moment.
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gap: 8, maxHeight: 240, overflowY: 'auto' }}>
-            {organizers.map((o) => (
-              <div key={o.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-deep)', border: '1px solid var(--line)', borderRadius: 8 }}>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontWeight: 600 }}>👤 {o.display_name || o.username}</div>
-                  <div style={{ color: 'var(--gray)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
-                    {o.username} · mdp : {o.password}
-                  </div>
-                </div>
-                <button onClick={() => deleteOrganizer(o.id, o.username)} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', fontSize: 20, cursor: 'pointer', padding: '4px 8px' }} title="Supprimer">
-                  🗑
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <button className="btn btn-ghost" onClick={onClose} style={{ width: '100%', marginTop: 20 }}>Fermer</button>
+        {error && <div style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 10 }}>⚠️ {error}</div>}
+        <button className="btn btn-primary" onClick={addCode} style={{ width: '100%' }}>➕ Créer le code</button>
       </div>
+
+      {loading ? (
+        <div style={{ color: 'var(--gray)', padding: 20, textAlign: 'center' }}>Chargement...</div>
+      ) : codes.length === 0 ? (
+        <div style={{ color: 'var(--gray)', padding: 20, textAlign: 'center', fontSize: 14 }}>Aucun code. Crée-en un pour autoriser les inscriptions.</div>
+      ) : (
+        <div style={{ display: 'grid', gap: 8, maxHeight: 200, overflowY: 'auto' }}>
+          {codes.map((c) => (
+            <div key={c.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-deep)', border: '1px solid var(--line)', borderRadius: 8 }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--neon)', fontSize: 16 }}>{c.code}</div>
+                {c.label && <div style={{ color: 'var(--gray)', fontSize: 12 }}>{c.label}</div>}
+              </div>
+              <button onClick={() => deleteCode(c.id, c.code)} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', fontSize: 20, cursor: 'pointer', padding: '4px 8px' }} title="Supprimer">🗑</button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
