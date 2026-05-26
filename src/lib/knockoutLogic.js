@@ -276,12 +276,25 @@ export function resolveBracket(teams, matches, numPools) {
 }
 
 /**
- * Classement final (inclut consolante)
+ * Classement final knockout ROBUSTE.
+ * - Si les phases finales ont des résultats → utilise le bracket (champion, finaliste, etc.)
+ * - Complète/remplace par un classement global basé sur les poules pour les équipes
+ *   non classées par le bracket (ou si le tournoi est terminé avant la fin des finales).
+ * Retourne TOUJOURS un classement de toutes les équipes.
  */
 export function computeKnockoutFinalRanking(teams, matches) {
   const teamById = (id) => teams.find((t) => t.id === id)
   const ranking = []
+  const placedTeamIds = new Set()
 
+  const pushTeam = (teamId, label) => {
+    const team = teamById(teamId)
+    if (!team || placedTeamIds.has(teamId)) return
+    placedTeamIds.add(teamId)
+    ranking.push({ rank: ranking.length + 1, team, label })
+  }
+
+  // --- 1) Résultats du bracket (si finales jouées) ---
   const finalMatch = matches.find((m) => m.phase === 'final' && m.is_finished)
   const thirdMatch = matches.find((m) => m.phase === 'third' && m.is_finished)
   const consFinalMatch = matches.find((m) => m.phase === 'cons-final' && m.is_finished)
@@ -289,24 +302,38 @@ export function computeKnockoutFinalRanking(teams, matches) {
 
   if (finalMatch && finalMatch.team_a_id && finalMatch.team_b_id) {
     const aWins = finalMatch.score_a > finalMatch.score_b
-    ranking.push({ rank: 1, team: teamById(aWins ? finalMatch.team_a_id : finalMatch.team_b_id), label: '🥇 Champion' })
-    ranking.push({ rank: 2, team: teamById(aWins ? finalMatch.team_b_id : finalMatch.team_a_id), label: '🥈 Finaliste' })
+    pushTeam(aWins ? finalMatch.team_a_id : finalMatch.team_b_id, '🥇 Champion')
+    pushTeam(aWins ? finalMatch.team_b_id : finalMatch.team_a_id, '🥈 Finaliste')
   }
   if (thirdMatch && thirdMatch.team_a_id && thirdMatch.team_b_id) {
     const aWins = thirdMatch.score_a > thirdMatch.score_b
-    ranking.push({ rank: 3, team: teamById(aWins ? thirdMatch.team_a_id : thirdMatch.team_b_id), label: '🥉 3e place' })
-    ranking.push({ rank: 4, team: teamById(aWins ? thirdMatch.team_b_id : thirdMatch.team_a_id), label: '4e place' })
+    pushTeam(aWins ? thirdMatch.team_a_id : thirdMatch.team_b_id, '🥉 3e place')
+    pushTeam(aWins ? thirdMatch.team_b_id : thirdMatch.team_a_id, '4e place')
   }
   if (consFinalMatch && consFinalMatch.team_a_id && consFinalMatch.team_b_id) {
     const aWins = consFinalMatch.score_a > consFinalMatch.score_b
-    ranking.push({ rank: 5, team: teamById(aWins ? consFinalMatch.team_a_id : consFinalMatch.team_b_id), label: '5e place' })
-    ranking.push({ rank: 6, team: teamById(aWins ? consFinalMatch.team_b_id : consFinalMatch.team_a_id), label: '6e place' })
+    pushTeam(aWins ? consFinalMatch.team_a_id : consFinalMatch.team_b_id, '5e place')
+    pushTeam(aWins ? consFinalMatch.team_b_id : consFinalMatch.team_a_id, '6e place')
   }
   if (consThirdMatch && consThirdMatch.team_a_id && consThirdMatch.team_b_id) {
     const aWins = consThirdMatch.score_a > consThirdMatch.score_b
-    ranking.push({ rank: 7, team: teamById(aWins ? consThirdMatch.team_a_id : consThirdMatch.team_b_id), label: '7e place' })
-    ranking.push({ rank: 8, team: teamById(aWins ? consThirdMatch.team_b_id : consThirdMatch.team_a_id), label: '8e place' })
+    pushTeam(aWins ? consThirdMatch.team_a_id : consThirdMatch.team_b_id, '7e place')
+    pushTeam(aWins ? consThirdMatch.team_b_id : consThirdMatch.team_a_id, '8e place')
   }
+
+  // --- 2) Fallback : toutes les équipes restantes, classées par perfs globales ---
+  // (utile si finales non terminées ou tournoi clôturé en phase de poules)
+  const globalStats = computeStandings(teams, matches.filter((m) => m.is_finished))
+  globalStats.forEach((s) => {
+    if (!placedTeamIds.has(s.team.id)) {
+      pushTeam(s.team.id, `${ranking.length + 1}e place`)
+    }
+  })
+
+  // Au cas où certaines équipes n'ont aucun match (jamais joué) : on les ajoute en fin
+  teams.forEach((t) => {
+    if (!placedTeamIds.has(t.id)) pushTeam(t.id, `${ranking.length + 1}e place`)
+  })
 
   return ranking
 }

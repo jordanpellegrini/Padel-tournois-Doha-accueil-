@@ -105,17 +105,24 @@ export function generateCorporateMatches(teams, numCompanies, maxLevel, numCourt
  */
 export function computeCorporateStandings(teams, matches, companyNames) {
   const stats = {}
-  // Initialise une entrée par entreprise
-  companyNames.forEach((name, idx) => {
+
+  // Détermine la liste des entreprises : on part des noms fournis,
+  // mais on complète avec les company_index présents dans les équipes
+  // (au cas où company_names serait vide ou incomplet).
+  const names = Array.isArray(companyNames) ? [...companyNames] : []
+  const indexesFromTeams = [...new Set(teams.map((t) => t.company_index).filter((i) => i !== null && i !== undefined))]
+  const maxIndex = Math.max(names.length - 1, ...(indexesFromTeams.length ? indexesFromTeams : [-1]))
+
+  for (let idx = 0; idx <= maxIndex; idx++) {
     stats[idx] = {
       company_index: idx,
-      company_name: name,
+      company_name: names[idx] || `Entreprise ${String.fromCharCode(65 + idx)}`,
       wins: 0,
       pointsFor: 0,
       pointsAgainst: 0,
       played: 0,
     }
-  })
+  }
 
   const teamById = (id) => teams.find((t) => t.id === id)
 

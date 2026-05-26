@@ -380,14 +380,14 @@ export default function TournamentPage() {
       }))
     }
     if (isKnockout) {
-      // Classement final knockout (podium 1-8 si consolante)
+      // Classement final knockout (toujours rempli grâce au fallback)
       const kr = computeKnockoutFinalRanking(teams, matches)
       return kr
         .filter((r) => r.team)
         .map((r) => ({
           rank: r.rank,
           name: r.team.team_name || `${r.team.player1_name} / ${r.team.player2_name}`,
-          sub: `${r.team.player1_name} / ${r.team.player2_name}`,
+          sub: r.team.team_name ? `${r.team.player1_name} / ${r.team.player2_name}` : null,
         }))
     }
     // Tournoi au temps : classement par points
@@ -613,8 +613,9 @@ export default function TournamentPage() {
           )}
 
           {isAdmin && (
-            <div style={{ marginTop: 24 }}>
+            <div style={{ display: 'flex', gap: 12, marginTop: 24, flexWrap: 'wrap', justifyContent: 'center' }}>
               <button className="btn btn-ghost" onClick={reopenTournament}>↺ Réouvrir le tournoi</button>
+              <button className="btn btn-primary" onClick={() => navigate('/')}>✓ Clôturer · retour à l'accueil</button>
             </div>
           )}
         </>
