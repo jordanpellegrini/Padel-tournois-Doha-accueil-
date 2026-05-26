@@ -16,8 +16,13 @@ import {
   generateFinalsBracket,
   resolveBracket,
 } from '../lib/knockoutLogic'
+import { generateCorporateMatches, computeCorporateStandings } from '../lib/corporateLogic'
+import { computeKnockoutFinalRanking } from '../lib/knockoutLogic'
 import MatchTimer from '../components/MatchTimer'
 import KnockoutView from '../components/KnockoutView'
+import CorporateView from '../components/CorporateView'
+import CorporateSetup from '../components/CorporateSetup'
+import FinalPodium from '../components/FinalPodium'
 
 export default function TournamentPage() {
   const { id } = useParams()
@@ -39,6 +44,7 @@ export default function TournamentPage() {
   const [p2, setP2] = useState('')
 
   const isKnockout = tournament?.tournament_type === 'knockout'
+  const isCorporate = tournament?.tournament_type === 'corporate'
 
   useEffect(() => {
     loadAll()
@@ -208,6 +214,56 @@ export default function TournamentPage() {
   }
 
   // ============================================
+  // FONCTIONS INTER-ENTREPRISES
+  // ============================================
+  // Ajoute une équipe à une entreprise/niveau précis
+  const addTeamCorporate = async (companyIndex, level, np1, np2) => {
+    await supabase.from('teams').insert({
+      tournament_id: id,
+      player1_name: np1,
+      player2_name: np2,
+      team_name: `${np1} / ${np2}`,
+      company_index: companyIndex,
+      level: level,
+    })
+  }
+
+  const launchCorporate = async () => {
+    const numCompanies = tournament.num_companies || 4
+    const maxLevel = tournament.teams_per_company || 8
+
+    // Vérifie qu'il y a au moins 2 équipes par niveau pour pouvoir jouer
+    const levelsOk = []
+    for (let lvl = 1; lvl <= maxLevel; lvl++) {
+      const count = teams.filter((t) => t.level === lvl).length
+      if (count >= 2) levelsOk.push(lvl)
+    }
+    if (levelsOk.length === 0) {
+      alert('Ajoute au moins 2 équipes de même niveau pour pouvoir lancer le tournoi')
+      return
+    }
+
+    const companyNames = tournament.company_names || []
+    const matchesToCreate = generateCorporateMatches(teams, numCompanies, maxLevel, tournament.num_courts)
+
+    await supabase.from('matches').delete().eq('tournament_id', id)
+    await supabase.from('matches').insert(
+      matchesToCreate.map((m) => ({
+        tournament_id: id,
+        phase: m.phase,
+        level: m.level,
+        round_number: m.round_number,
+        court_number: m.court_number,
+        team_a_id: m.team_a_id,
+        team_b_id: m.team_b_id,
+        bracket_label: m.bracket_label,
+      }))
+    )
+    await updateSetup({ status: 'running' })
+    setCurrentRound(1)
+  }
+
+  // ============================================
   // TRANSITION POULES -> PHASES FINALES
   // ============================================
   const startFinals = async () => {
@@ -297,13 +353,50 @@ export default function TournamentPage() {
   }
 
   const numRoundsPossible = computeNumRounds(tournament.total_duration_minutes, tournament.match_duration_minutes, tournament.break_duration_minutes)
-  const totalRounds = Math.max(...matches.filter((m) => m.phase === 'pool').map((m) => m.round_number), 0)
-  const finishedRounds = [...new Set(matches.filter((m) => m.is_finished && m.phase === 'pool').map((m) => m.round_number))]
+  const roundPhases = isCorporate ? ['corporate'] : ['pool']
+  const totalRounds = Math.max(...matches.filter((m) => roundPhases.includes(m.phase)).map((m) => m.round_number), 0)
+  const finishedRounds = [...new Set(matches.filter((m) => m.is_finished && roundPhases.includes(m.phase)).map((m) => m.round_number))]
   const standings = computeStandings(teams, matches)
   const poolMatchesAllFinished = (() => {
     const pm = matches.filter((m) => m.phase === 'pool')
     return pm.length > 0 && pm.every((m) => m.is_finished)
   })()
+
+  // ============================================
+  // CONSTRUCTION DU PODIUM FINAL (selon le type)
+  // ============================================
+  const buildPodiumEntries = () => {
+    if (isCorporate) {
+      // Classement par entreprise (jeux gagnés)
+      const cs = computeCorporateStandings(teams, matches, tournament.company_names || [])
+      return cs.map((s, i) => ({
+        rank: i + 1,
+        name: s.company_name,
+        sub: `${s.wins} victoire${s.wins > 1 ? 's' : ''} · diff ${s.diff > 0 ? '+' : ''}${s.diff}`,
+        value: s.pointsFor,
+        valueLabel: 'jeux',
+      }))
+    }
+    if (isKnockout) {
+      // Classement final knockout (podium 1-8 si consolante)
+      const kr = computeKnockoutFinalRanking(teams, matches)
+      return kr
+        .filter((r) => r.team)
+        .map((r) => ({
+          rank: r.rank,
+          name: r.team.team_name || `${r.team.player1_name} / ${r.team.player2_name}`,
+          sub: `${r.team.player1_name} / ${r.team.player2_name}`,
+        }))
+    }
+    // Tournoi au temps : classement par points
+    return standings.map((s, i) => ({
+      rank: i + 1,
+      name: s.team.team_name || `${s.team.player1_name} / ${s.team.player2_name}`,
+      sub: `${s.wins} victoire${s.wins > 1 ? 's' : ''} · diff ${s.diff > 0 ? '+' : ''}${s.diff}`,
+      value: s.pointsFor,
+      valueLabel: 'jeux',
+    }))
+  }
 
   return (
     <main className="container">
@@ -321,8 +414,8 @@ export default function TournamentPage() {
             </Link>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-            <span className="badge" style={{ background: isKnockout ? 'rgba(255, 107, 74, 0.15)' : 'rgba(212, 255, 58, 0.15)', color: isKnockout ? 'var(--coral)' : 'var(--neon)' }}>
-              {isKnockout ? '🏆 Knockout' : '🎯 Au temps'}
+            <span className="badge" style={{ background: isCorporate ? 'rgba(201, 169, 110, 0.15)' : isKnockout ? 'rgba(255, 107, 74, 0.15)' : 'rgba(212, 255, 58, 0.15)', color: isCorporate ? 'var(--sand-warm)' : isKnockout ? 'var(--coral)' : 'var(--neon)' }}>
+              {isCorporate ? '🏢 Inter-entreprises' : isKnockout ? '🏆 Knockout' : '🎯 Au temps'}
             </span>
             <span style={{ color: 'var(--gray)', fontSize: 14 }}>
               {new Date(tournament.tournament_date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
@@ -345,37 +438,65 @@ export default function TournamentPage() {
           ============================================ */}
       {tournament.status === 'setup' && (
         <>
-          <SetupPanel tournament={tournament} onUpdate={updateSetup} isAdmin={isAdmin} numRoundsPossible={numRoundsPossible} isKnockout={isKnockout} numTeams={teams.length} />
-          <TeamsPanel teams={teams} isAdmin={isAdmin} p1={p1} p2={p2} setP1={setP1} setP2={setP2} addTeam={addTeam} deleteTeam={deleteTeam} onEditTeam={setEditingTeam} onOpenDraw={() => setShowDrawModal(true)} />
-
-          {isAdmin && (
-            <div className="card" style={{ marginTop: 24, textAlign: 'center' }}>
-              {isKnockout ? (
-                <>
+          {isCorporate ? (
+            <>
+              <CorporateSetup
+                tournament={tournament}
+                isAdmin={isAdmin}
+                teams={teams}
+                onUpdateTournament={updateSetup}
+                onAddTeam={addTeamCorporate}
+                onDeleteTeam={deleteTeam}
+                onEditTeam={setEditingTeam}
+              />
+              {isAdmin && (
+                <div className="card" style={{ marginTop: 24, textAlign: 'center' }}>
                   <div style={{ marginBottom: 16, color: 'var(--gray)' }}>
-                    {teams.length < 4
-                      ? `Ajoute au moins 4 équipes (${teams.length} actuelle${teams.length > 1 ? 's' : ''})`
-                      : `Prêt : ${teams.length} équipes → ${getNumPools(teams.length)} poules · phase de poules au temps`}
+                    {teams.length === 0
+                      ? 'Ajoute les équipes de chaque entreprise par niveau'
+                      : `${teams.length} équipes enregistrées · chaque équipe jouera ${(tournament.num_companies || 4) - 1} match(s)`}
                   </div>
-                  <button className="btn btn-primary" onClick={launchKnockoutPools} disabled={teams.length < 4} style={{ fontSize: 22, padding: '16px 40px' }}>
-                    🏆 Lancer les poules
+                  <button className="btn btn-primary" onClick={launchCorporate} disabled={teams.length < 2} style={{ fontSize: 22, padding: '16px 40px', background: 'var(--sand-warm)', color: 'var(--bg-deep)' }}>
+                    🏢 Lancer le tournoi
                   </button>
-                </>
-              ) : (
-                <>
-                  <div style={{ marginBottom: 16, color: 'var(--gray)' }}>
-                    {teams.length < 2
-                      ? `Ajoute au moins 2 équipes (${teams.length} actuelle${teams.length > 1 ? 's' : ''})`
-                      : numRoundsPossible === 0
-                      ? 'Durée totale trop courte'
-                      : `Prêt : ${teams.length} équipes · ${numRoundsPossible} round${numRoundsPossible > 1 ? 's' : ''} · ${tournament.num_courts} terrain${tournament.num_courts > 1 ? 's' : ''}`}
-                  </div>
-                  <button className="btn btn-primary" onClick={launchPointsTournament} disabled={teams.length < 2 || numRoundsPossible === 0} style={{ fontSize: 22, padding: '16px 40px' }}>
-                    🚀 Lancer le tournoi
-                  </button>
-                </>
+                </div>
               )}
-            </div>
+            </>
+          ) : (
+            <>
+              <SetupPanel tournament={tournament} onUpdate={updateSetup} isAdmin={isAdmin} numRoundsPossible={numRoundsPossible} isKnockout={isKnockout} numTeams={teams.length} />
+              <TeamsPanel teams={teams} isAdmin={isAdmin} p1={p1} p2={p2} setP1={setP1} setP2={setP2} addTeam={addTeam} deleteTeam={deleteTeam} onEditTeam={setEditingTeam} onOpenDraw={() => setShowDrawModal(true)} />
+
+              {isAdmin && (
+                <div className="card" style={{ marginTop: 24, textAlign: 'center' }}>
+                  {isKnockout ? (
+                    <>
+                      <div style={{ marginBottom: 16, color: 'var(--gray)' }}>
+                        {teams.length < 4
+                          ? `Ajoute au moins 4 équipes (${teams.length} actuelle${teams.length > 1 ? 's' : ''})`
+                          : `Prêt : ${teams.length} équipes → ${getNumPools(teams.length)} poules · phase de poules au temps`}
+                      </div>
+                      <button className="btn btn-primary" onClick={launchKnockoutPools} disabled={teams.length < 4} style={{ fontSize: 22, padding: '16px 40px' }}>
+                        🏆 Lancer les poules
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ marginBottom: 16, color: 'var(--gray)' }}>
+                        {teams.length < 2
+                          ? `Ajoute au moins 2 équipes (${teams.length} actuelle${teams.length > 1 ? 's' : ''})`
+                          : numRoundsPossible === 0
+                          ? 'Durée totale trop courte'
+                          : `Prêt : ${teams.length} équipes · ${numRoundsPossible} round${numRoundsPossible > 1 ? 's' : ''} · ${tournament.num_courts} terrain${tournament.num_courts > 1 ? 's' : ''}`}
+                      </div>
+                      <button className="btn btn-primary" onClick={launchPointsTournament} disabled={teams.length < 2 || numRoundsPossible === 0} style={{ fontSize: 22, padding: '16px 40px' }}>
+                        🚀 Lancer le tournoi
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </>
       )}
@@ -404,7 +525,16 @@ export default function TournamentPage() {
           )}
 
           {/* ===== VUE SELON LE TYPE ===== */}
-          {isKnockout ? (
+          {isCorporate ? (
+            <CorporateView
+              tournament={tournament}
+              teams={teams}
+              matches={matches}
+              isAdmin={isAdmin}
+              updateScore={updateScore}
+              toggleMatchFinished={toggleMatchFinished}
+            />
+          ) : isKnockout ? (
             <>
               <KnockoutView
                 tournament={tournament}
@@ -465,19 +595,19 @@ export default function TournamentPage() {
           ============================================ */}
       {tournament.status === 'finished' && (
         <>
-          {isKnockout ? (
-            <KnockoutView tournament={tournament} teams={teams} matches={matches} isAdmin={false} updateScore={updateScore} toggleMatchFinished={toggleMatchFinished} onEditTeam={setEditingTeam} />
+          {/* PODIUM FINAL EN GRAND (tous types) */}
+          <FinalPodium
+            title="CLASSEMENT FINAL"
+            entries={buildPodiumEntries()}
+          />
+
+          {/* Détail selon le type (sous le podium) */}
+          {isCorporate ? (
+            <CorporateView tournament={tournament} teams={teams} matches={matches} isAdmin={false} updateScore={updateScore} toggleMatchFinished={toggleMatchFinished} />
+          ) : isKnockout ? (
+            <KnockoutView tournament={tournament} teams={teams} matches={matches} isAdmin={false} updateScore={updateScore} toggleMatchFinished={toggleMatchFinished} onEditTeam={setEditingTeam} hideFinalRanking />
           ) : (
-            <>
-              <div className="card" style={{ textAlign: 'center', marginBottom: 24 }}>
-                <div style={{ fontSize: 64, marginBottom: 8 }}>🏆</div>
-                <h2 className="h-display" style={{ fontSize: 36, color: 'var(--neon)' }}>TOURNOI TERMINÉ</h2>
-                {standings.length > 0 && (
-                  <p style={{ marginTop: 12, color: 'var(--sand)' }}>Vainqueurs : <strong>{standings[0].team.team_name}</strong></p>
-                )}
-              </div>
-              <Standings standings={standings} isAdmin={isAdmin} onEditTeam={setEditingTeam} />
-            </>
+            <Standings standings={standings} isAdmin={isAdmin} onEditTeam={setEditingTeam} />
           )}
 
           {isAdmin && (

@@ -15,6 +15,7 @@ export default function KnockoutView({
   isAdmin,
   updateScore,
   toggleMatchFinished,
+  hideFinalRanking = false,
 }) {
   const numPools = tournament.num_pools || getNumPools(teams.length)
   const phase = tournament.knockout_phase || 'pools'
@@ -162,8 +163,8 @@ export default function KnockoutView({
             </>
           )}
 
-          {/* Classement final complet */}
-          {finalRanking.length > 0 && (
+          {/* Classement final complet (caché si le podium commun est déjà affiché) */}
+          {!hideFinalRanking && finalRanking.length > 0 && (
             <div className="card" style={{ marginTop: 24, textAlign: 'center' }}>
               <div style={{ fontSize: 48, marginBottom: 8 }}>🏆</div>
               <h2 className="h-display" style={{ fontSize: 28, color: 'var(--neon)', marginBottom: 20 }}>
