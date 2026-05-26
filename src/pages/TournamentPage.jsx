@@ -27,7 +27,7 @@ import FinalPodium from '../components/FinalPodium'
 export default function TournamentPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { isAdmin } = useAuth()
+  const { canManageTournament, currentUser } = useAuth()
 
   const [tournament, setTournament] = useState(null)
   const [teams, setTeams] = useState([])
@@ -45,6 +45,8 @@ export default function TournamentPage() {
 
   const isKnockout = tournament?.tournament_type === 'knockout'
   const isCorporate = tournament?.tournament_type === 'corporate'
+  // Droit de GÉRER ce tournoi : super-admin (tous) ou organisateur créateur (les siens)
+  const isAdmin = canManageTournament(tournament)
 
   useEffect(() => {
     loadAll()

@@ -5,7 +5,7 @@ import { useAuth } from '../lib/auth'
 
 export default function HomePage() {
   const navigate = useNavigate()
-  const { isAdmin } = useAuth()
+  const { isAdmin, currentUser } = useAuth()
   const [recentTournaments, setRecentTournaments] = useState([])
   const [creating, setCreating] = useState(false)
   const [showTypeModal, setShowTypeModal] = useState(false)
@@ -46,6 +46,7 @@ export default function HomePage() {
       tournament_date: today.toISOString().split('T')[0],
       status: 'setup',
       tournament_type: type,
+      created_by: currentUser?.username || 'admin',
     }
     if (type === 'knockout') baseData.knockout_phase = 'pools'
     if (type === 'corporate') {
