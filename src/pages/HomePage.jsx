@@ -8,6 +8,7 @@ export default function HomePage() {
   const { isAdmin } = useAuth()
   const [recentTournaments, setRecentTournaments] = useState([])
   const [creating, setCreating] = useState(false)
+  const [showTypeModal, setShowTypeModal] = useState(false)
 
   useEffect(() => {
     loadRecent()
@@ -22,24 +23,32 @@ export default function HomePage() {
     if (!error && data) setRecentTournaments(data)
   }
 
-  const handleNewTournament = async () => {
+  const handleNewTournamentClick = () => {
     if (!isAdmin) {
       alert('Connecte-toi en admin pour créer un tournoi')
       return
     }
+    setShowTypeModal(true)
+  }
+
+  const createTournament = async (type) => {
     setCreating(true)
+    setShowTypeModal(false)
     const today = new Date()
     const dateStr = today.toLocaleDateString('fr-FR', {
       day: '2-digit',
       month: 'long',
       year: 'numeric',
     })
+    const typeLabel = type === 'knockout' ? 'Knockout' : 'Pádel'
     const { data, error } = await supabase
       .from('tournaments')
       .insert({
-        name: `Pádel du ${dateStr}`,
+        name: `${typeLabel} du ${dateStr}`,
         tournament_date: today.toISOString().split('T')[0],
         status: 'setup',
+        tournament_type: type,
+        knockout_phase: type === 'knockout' ? 'pools' : null,
       })
       .select()
       .single()
@@ -74,11 +83,7 @@ export default function HomePage() {
           boxShadow: '0 4px 30px rgba(0,0,0,0.2)',
         }}
       >
-        <svg
-          viewBox="0 0 400 140"
-          style={{ width: '100%', maxWidth: 460, height: 'auto' }}
-          xmlns="http://www.w3.org/2000/svg"
-        >
+        <svg viewBox="0 0 400 140" style={{ width: '100%', maxWidth: 460, height: 'auto' }} xmlns="http://www.w3.org/2000/svg">
           <g stroke="#1d6fcb" strokeWidth="1.2" fill="none" strokeLinecap="round">
             <path d="M 30 55 L 30 12 L 105 50 Z" strokeWidth="1.5" />
             <line x1="35" y1="20" x2="80" y2="40" strokeWidth="0.6" opacity="0.6" />
@@ -91,7 +96,6 @@ export default function HomePage() {
             <line x1="55" y1="80" x2="80" y2="80" strokeWidth="0.6" opacity="0.5" />
             <line x1="90" y1="78" x2="105" y2="78" strokeWidth="0.6" opacity="0.5" />
           </g>
-
           <g stroke="#1d6fcb" strokeWidth="1.2" fill="none" strokeLinejoin="round">
             <path d="M 155 65 L 152 35 Q 155 28 158 35 L 158 22 Q 161 18 164 22 L 164 35 Q 167 28 170 35 L 167 65 Z" />
             <rect x="178" y="30" width="14" height="35" />
@@ -127,118 +131,37 @@ export default function HomePage() {
             <rect x="378" y="42" width="8" height="23" />
             <line x1="145" y1="65" x2="395" y2="65" strokeWidth="1.5" />
           </g>
-
-          <text
-            x="20"
-            y="115"
-            fontFamily="'Bebas Neue', Impact, sans-serif"
-            fontSize="32"
-            fontWeight="700"
-            fill="#f4b400"
-            letterSpacing="2"
-          >
-            DOHA
-          </text>
-          <text
-            x="115"
-            y="115"
-            fontFamily="'Bebas Neue', Impact, sans-serif"
-            fontSize="32"
-            fontWeight="400"
-            fill="#1d6fcb"
-            letterSpacing="2"
-          >
-            ACCUEIL
-          </text>
+          <text x="20" y="115" fontFamily="'Bebas Neue', Impact, sans-serif" fontSize="32" fontWeight="700" fill="#f4b400" letterSpacing="2">DOHA</text>
+          <text x="115" y="115" fontFamily="'Bebas Neue', Impact, sans-serif" fontSize="32" fontWeight="400" fill="#1d6fcb" letterSpacing="2">ACCUEIL</text>
         </svg>
       </div>
 
       {/* HERO */}
       <section style={{ position: 'relative', padding: '20px 0 60px', textAlign: 'center' }}>
-        <div
-          style={{
-            position: 'absolute',
-            top: 0,
-            right: '5%',
-            width: 80,
-            height: 80,
-            borderRadius: '50%',
-            background: 'var(--neon)',
-            opacity: 0.15,
-            filter: 'blur(20px)',
-            pointerEvents: 'none',
-          }}
-        />
-        <div
-          style={{
-            position: 'absolute',
-            bottom: '10%',
-            left: '8%',
-            width: 120,
-            height: 120,
-            borderRadius: '50%',
-            background: 'var(--sand-warm)',
-            opacity: 0.1,
-            filter: 'blur(30px)',
-            pointerEvents: 'none',
-          }}
-        />
+        <div style={{ position: 'absolute', top: 0, right: '5%', width: 80, height: 80, borderRadius: '50%', background: 'var(--neon)', opacity: 0.15, filter: 'blur(20px)', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', bottom: '10%', left: '8%', width: 120, height: 120, borderRadius: '50%', background: 'var(--sand-warm)', opacity: 0.1, filter: 'blur(30px)', pointerEvents: 'none' }} />
 
-        <div
-          style={{
-            display: 'inline-block',
-            fontFamily: 'var(--font-mono)',
-            fontSize: 12,
-            letterSpacing: '0.3em',
-            color: 'var(--sand-warm)',
-            marginBottom: 24,
-            padding: '6px 16px',
-            border: '1px solid var(--line)',
-            borderRadius: 999,
-          }}
-        >
+        <div style={{ display: 'inline-block', fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '0.3em', color: 'var(--sand-warm)', marginBottom: 24, padding: '6px 16px', border: '1px solid var(--line)', borderRadius: 999 }}>
           🌴 QATAR · {new Date().getFullYear()}
         </div>
 
-        <h1
-          className="h-display"
-          style={{
-            fontSize: 'clamp(40px, 8vw, 80px)',
-            marginBottom: 20,
-            lineHeight: 0.95,
-          }}
-        >
+        <h1 className="h-display" style={{ fontSize: 'clamp(40px, 8vw, 80px)', marginBottom: 20, lineHeight: 0.95 }}>
           BIENVENUE AU
           <br />
           <span style={{ color: 'var(--neon)' }}>TOURNOI DE PÁDEL</span>
         </h1>
 
-        <p
-          style={{
-            color: 'var(--sand)',
-            fontSize: 20,
-            maxWidth: 560,
-            margin: '0 auto 40px',
-            fontWeight: 300,
-            letterSpacing: '0.02em',
-          }}
-        >
+        <p style={{ color: 'var(--sand)', fontSize: 20, maxWidth: 560, margin: '0 auto 40px', fontWeight: 300, letterSpacing: '0.02em' }}>
           Organisé par <strong style={{ color: 'var(--white)' }}>Doha Accueil</strong>
         </p>
 
         <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button
-            className="btn btn-primary"
-            onClick={handleNewTournament}
-            disabled={creating}
-            style={{ fontSize: 22, padding: '18px 36px' }}
-          >
+          <button className="btn btn-primary" onClick={handleNewTournamentClick} disabled={creating} style={{ fontSize: 22, padding: '18px 36px' }}>
             {creating ? '⏳ Création...' : '🎾 Nouveau tournoi'}
           </button>
           <Link to="/history" className="btn btn-secondary" style={{ fontSize: 18 }}>
             📅 Historique
           </Link>
-          {/* Bouton règlement -> page dynamique */}
           <Link to="/rules" className="btn btn-secondary" style={{ fontSize: 18 }}>
             📄 Règlement
           </Link>
@@ -260,34 +183,24 @@ export default function HomePage() {
           <div style={{ display: 'grid', gap: 12 }}>
             {recentTournaments.map((t) => {
               const s = formatStatus(t.status)
+              const isKnockout = t.tournament_type === 'knockout'
               return (
-                <Link
-                  key={t.id}
-                  to={`/tournament/${t.id}`}
-                  style={{ textDecoration: 'none', color: 'inherit' }}
-                >
+                <Link key={t.id} to={`/tournament/${t.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
                   <div
                     className="card"
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease',
-                    }}
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', transition: 'all 0.2s ease' }}
                     onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--neon)')}
                     onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--line)')}
                   >
                     <div>
-                      <div className="h-display" style={{ fontSize: 20, marginBottom: 4 }}>
-                        {t.name}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <div className="h-display" style={{ fontSize: 20 }}>{t.name}</div>
+                        <span className="badge" style={{ background: isKnockout ? 'rgba(255, 107, 74, 0.15)' : 'rgba(212, 255, 58, 0.15)', color: isKnockout ? 'var(--coral)' : 'var(--neon)' }}>
+                          {isKnockout ? '🏆 Knockout' : '🎯 Au temps'}
+                        </span>
                       </div>
                       <div style={{ color: 'var(--gray)', fontSize: 13 }}>
-                        {new Date(t.tournament_date).toLocaleDateString('fr-FR', {
-                          weekday: 'long',
-                          day: 'numeric',
-                          month: 'long',
-                        })}
+                        {new Date(t.tournament_date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
                       </div>
                     </div>
                     <span className={`badge ${s.cls}`}>{s.label}</span>
@@ -297,6 +210,80 @@ export default function HomePage() {
             })}
           </div>
         </section>
+      )}
+
+      {/* ============================================
+          MODALE CHOIX DU TYPE DE TOURNOI
+          ============================================ */}
+      {showTypeModal && (
+        <div className="modal-backdrop" onClick={() => setShowTypeModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <h2 className="h-display" style={{ fontSize: 32, marginBottom: 8 }}>
+              TYPE DE TOURNOI
+            </h2>
+            <p style={{ color: 'var(--gray)', marginBottom: 24, fontSize: 14 }}>
+              Choisis le format de ton tournoi
+            </p>
+
+            <div style={{ display: 'grid', gap: 12 }}>
+              {/* Tournoi au temps */}
+              <button
+                onClick={() => createTournament('points')}
+                style={{
+                  textAlign: 'left',
+                  padding: 20,
+                  background: 'var(--bg-deep)',
+                  border: '2px solid var(--neon)',
+                  borderRadius: 12,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(212, 255, 58, 0.08)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-deep)')}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                  <span style={{ fontSize: 32 }}>🎯</span>
+                  <span className="h-display" style={{ fontSize: 22, color: 'var(--neon)' }}>
+                    TOURNOI AU TEMPS
+                  </span>
+                </div>
+                <p style={{ color: 'var(--sand)', fontSize: 13, lineHeight: 1.5, margin: 0 }}>
+                  Round-robin équilibré · Classement par points · Tout le monde joue le même nombre de matchs · Idéal pour jouer un max et s'amuser
+                </p>
+              </button>
+
+              {/* Tournoi knockout */}
+              <button
+                onClick={() => createTournament('knockout')}
+                style={{
+                  textAlign: 'left',
+                  padding: 20,
+                  background: 'var(--bg-deep)',
+                  border: '2px solid var(--coral)',
+                  borderRadius: 12,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255, 107, 74, 0.08)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-deep)')}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                  <span style={{ fontSize: 32 }}>🏆</span>
+                  <span className="h-display" style={{ fontSize: 22, color: 'var(--coral)' }}>
+                    TOURNOI KNOCKOUT
+                  </span>
+                </div>
+                <p style={{ color: 'var(--sand)', fontSize: 13, lineHeight: 1.5, margin: 0 }}>
+                  Phase de poules au temps · Puis demi-finales croisées + finale · Désigne un vrai champion 🥇 · Compétitif et spectaculaire
+                </p>
+              </button>
+            </div>
+
+            <button className="btn btn-ghost" onClick={() => setShowTypeModal(false)} style={{ width: '100%', marginTop: 16 }}>
+              Annuler
+            </button>
+          </div>
+        </div>
       )}
     </main>
   )

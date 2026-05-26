@@ -9,7 +9,15 @@ import {
   shufflePlayers,
   computeStandings,
 } from '../lib/tournamentLogic'
+import {
+  getNumPools,
+  distributeIntoPools,
+  generatePoolMatches,
+  generateFinalsBracket,
+  resolveBracket,
+} from '../lib/knockoutLogic'
 import MatchTimer from '../components/MatchTimer'
+import KnockoutView from '../components/KnockoutView'
 
 export default function TournamentPage() {
   const { id } = useParams()
@@ -30,6 +38,8 @@ export default function TournamentPage() {
   const [p1, setP1] = useState('')
   const [p2, setP2] = useState('')
 
+  const isKnockout = tournament?.tournament_type === 'knockout'
+
   useEffect(() => {
     loadAll()
     const ch = supabase
@@ -40,6 +50,13 @@ export default function TournamentPage() {
       .subscribe()
     return () => supabase.removeChannel(ch)
   }, [id])
+
+  // À chaque changement de matchs, on tente de résoudre le bracket (knockout)
+  useEffect(() => {
+    if (isKnockout && tournament?.knockout_phase === 'finals' && isAdmin) {
+      tryResolveBracket()
+    }
+  }, [matches, tournament])
 
   const loadAll = async () => {
     setLoading(true)
@@ -93,11 +110,7 @@ export default function TournamentPage() {
     }
     await supabase
       .from('teams')
-      .update({
-        player1_name: newP1.trim(),
-        player2_name: newP2.trim(),
-        team_name: `${newP1.trim()} / ${newP2.trim()}`,
-      })
+      .update({ player1_name: newP1.trim(), player2_name: newP2.trim(), team_name: `${newP1.trim()} / ${newP2.trim()}` })
       .eq('id', teamId)
     setEditingTeam(null)
   }
@@ -109,28 +122,26 @@ export default function TournamentPage() {
   }
 
   const drawNewPairs = async () => {
-    if (!confirm('Cela va SUPPRIMER les équipes actuelles et reformer des paires aléatoires à partir des joueurs. Continuer ?')) return
+    if (!confirm('Cela va SUPPRIMER les équipes actuelles et reformer des paires aléatoires. Continuer ?')) return
     const newPairs = shufflePlayers(teams)
     await supabase.from('teams').delete().eq('tournament_id', id)
     await supabase.from('teams').insert(
-      newPairs.map((p) => ({
-        tournament_id: id,
-        player1_name: p.player1_name,
-        player2_name: p.player2_name,
-        team_name: p.team_name,
-      }))
+      newPairs.map((p) => ({ tournament_id: id, player1_name: p.player1_name, player2_name: p.player2_name, team_name: p.team_name }))
     )
     setShowDrawModal(false)
   }
 
-  const launchTournament = async () => {
+  // ============================================
+  // LANCEMENT TOURNOI AU TEMPS (points)
+  // ============================================
+  const launchPointsTournament = async () => {
     if (teams.length < 2) {
       alert('Il faut au moins 2 équipes')
       return
     }
     const numRounds = computeNumRounds(tournament.total_duration_minutes, tournament.match_duration_minutes, tournament.break_duration_minutes)
     if (numRounds === 0) {
-      alert('La durée totale est insuffisante pour faire au moins un round')
+      alert('La durée totale est insuffisante')
       return
     }
     const schedule = generateSchedule(teams, tournament.num_courts, numRounds)
@@ -142,10 +153,99 @@ export default function TournamentPage() {
         court_number: m.court_number,
         team_a_id: m.team_a_id,
         team_b_id: m.team_b_id,
+        phase: 'pool', // réutilise 'pool' comme phase neutre
       }))
     )
     await updateSetup({ status: 'running' })
     setCurrentRound(1)
+  }
+
+  // ============================================
+  // LANCEMENT TOURNOI KNOCKOUT - PHASE POULES
+  // ============================================
+  const launchKnockoutPools = async () => {
+    if (teams.length < 4) {
+      alert('Il faut au moins 4 équipes pour un tournoi knockout')
+      return
+    }
+    const numPools = getNumPools(teams.length)
+
+    // Vérif : assez d'équipes par poule (min 2 par poule pour avoir un 1er et 2e)
+    if (teams.length < numPools * 2) {
+      alert(`Il faut au moins ${numPools * 2} équipes pour ${numPools} poules`)
+      return
+    }
+
+    // Répartit les équipes dans les poules
+    const distribution = distributeIntoPools(teams, numPools)
+
+    // Met à jour le pool_index de chaque équipe
+    for (const { team, poolIndex } of distribution) {
+      await supabase.from('teams').update({ pool_index: poolIndex }).eq('id', team.id)
+    }
+
+    // Recharge les équipes avec leur pool_index
+    const { data: updatedTeams } = await supabase.from('teams').select('*').eq('tournament_id', id).order('created_at')
+
+    // Génère les matchs de poule
+    const poolMatches = generatePoolMatches(updatedTeams, numPools, tournament.num_courts)
+    await supabase.from('matches').delete().eq('tournament_id', id)
+    await supabase.from('matches').insert(
+      poolMatches.map((m) => ({
+        tournament_id: id,
+        phase: m.phase,
+        pool_index: m.pool_index,
+        round_number: m.round_number,
+        court_number: m.court_number,
+        team_a_id: m.team_a_id,
+        team_b_id: m.team_b_id,
+        bracket_label: m.bracket_label,
+      }))
+    )
+
+    await updateSetup({ status: 'running', num_pools: numPools, knockout_phase: 'pools' })
+    setCurrentRound(1)
+  }
+
+  // ============================================
+  // TRANSITION POULES -> PHASES FINALES
+  // ============================================
+  const startFinals = async () => {
+    const poolMatches = matches.filter((m) => m.phase === 'pool')
+    const allFinished = poolMatches.length > 0 && poolMatches.every((m) => m.is_finished)
+    if (!allFinished) {
+      if (!confirm('Tous les matchs de poule ne sont pas terminés. Lancer quand même les phases finales ?')) return
+    }
+
+    const numPools = tournament.num_pools || getNumPools(teams.length)
+    const maxPoolRound = Math.max(...poolMatches.map((m) => m.round_number), 0)
+
+    // Génère le bracket
+    const bracket = generateFinalsBracket(numPools, maxPoolRound + 1)
+    await supabase.from('matches').insert(
+      bracket.map((m) => ({
+        tournament_id: id,
+        phase: m.phase,
+        round_number: m.round_number,
+        court_number: m.court_number,
+        bracket_label: m.bracket_label,
+        team_a_placeholder: m.team_a_placeholder,
+        team_b_placeholder: m.team_b_placeholder,
+        team_a_id: m.team_a_id,
+        team_b_id: m.team_b_id,
+      }))
+    )
+
+    await updateSetup({ knockout_phase: 'finals' })
+  }
+
+  // Résout les placeholders du bracket (qualifiés, vainqueurs...)
+  const tryResolveBracket = async () => {
+    const numPools = tournament.num_pools || getNumPools(teams.length)
+    const updates = resolveBracket(teams, matches, numPools)
+    for (const u of updates) {
+      await supabase.from('matches').update({ team_a_id: u.team_a_id, team_b_id: u.team_b_id }).eq('id', u.matchId)
+    }
   }
 
   const updateScore = async (matchId, field, value) => {
@@ -167,12 +267,12 @@ export default function TournamentPage() {
   }
 
   const backToSetup = async () => {
-    if (!confirm('Retour à la configuration ? Le planning actuel sera conservé.')) return
-    await updateSetup({ status: 'setup' })
+    if (!confirm('Retour à la configuration ?')) return
+    await updateSetup({ status: 'setup', knockout_phase: isKnockout ? 'pools' : null })
   }
 
   const deleteTournament = async () => {
-    if (!confirm('Supprimer définitivement ce tournoi et toutes ses données ?')) return
+    if (!confirm('Supprimer définitivement ce tournoi ?')) return
     await supabase.from('tournaments').delete().eq('id', id)
     navigate('/')
   }
@@ -197,9 +297,13 @@ export default function TournamentPage() {
   }
 
   const numRoundsPossible = computeNumRounds(tournament.total_duration_minutes, tournament.match_duration_minutes, tournament.break_duration_minutes)
-  const totalRounds = Math.max(...matches.map((m) => m.round_number), 0)
-  const finishedRounds = [...new Set(matches.filter((m) => m.is_finished).map((m) => m.round_number))]
+  const totalRounds = Math.max(...matches.filter((m) => m.phase === 'pool').map((m) => m.round_number), 0)
+  const finishedRounds = [...new Set(matches.filter((m) => m.is_finished && m.phase === 'pool').map((m) => m.round_number))]
   const standings = computeStandings(teams, matches)
+  const poolMatchesAllFinished = (() => {
+    const pm = matches.filter((m) => m.phase === 'pool')
+    return pm.length > 0 && pm.every((m) => m.is_finished)
+  })()
 
   return (
     <main className="container">
@@ -208,36 +312,21 @@ export default function TournamentPage() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <Link to="/" style={{ color: 'var(--gray)', textDecoration: 'none', fontSize: 14 }}>← Retour</Link>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-            <h1 className="h-display" style={{ fontSize: 'clamp(28px, 6vw, 56px)', minWidth: 0, wordBreak: 'break-word' }}>
-              {tournament.name}
-            </h1>
+            <h1 className="h-display" style={{ fontSize: 'clamp(28px, 6vw, 56px)', minWidth: 0, wordBreak: 'break-word' }}>{tournament.name}</h1>
             {isAdmin && (
               <button onClick={() => setEditingName(true)} style={{ background: 'transparent', border: '1px solid var(--line)', borderRadius: 6, padding: '4px 8px', color: 'var(--sand-warm)', fontSize: 14, cursor: 'pointer' }} title="Renommer">✏️</button>
             )}
-            {/* ⭐ NOUVEAU : bouton Règlement à côté du titre */}
-            <Link
-              to={`/rules/${id}`}
-              style={{
-                background: 'transparent',
-                border: '1px solid var(--neon)',
-                borderRadius: 6,
-                padding: '6px 12px',
-                color: 'var(--neon)',
-                fontSize: 13,
-                fontFamily: 'var(--font-display)',
-                letterSpacing: '0.1em',
-                textDecoration: 'none',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-              title="Voir le règlement de ce tournoi"
-            >
+            <Link to={`/rules/${id}`} style={{ background: 'transparent', border: '1px solid var(--neon)', borderRadius: 6, padding: '6px 12px', color: 'var(--neon)', fontSize: 13, fontFamily: 'var(--font-display)', letterSpacing: '0.1em', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Voir le règlement">
               📄 RÈGLEMENT
             </Link>
           </div>
-          <div style={{ color: 'var(--gray)', marginTop: 4 }}>
-            {new Date(tournament.tournament_date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+            <span className="badge" style={{ background: isKnockout ? 'rgba(255, 107, 74, 0.15)' : 'rgba(212, 255, 58, 0.15)', color: isKnockout ? 'var(--coral)' : 'var(--neon)' }}>
+              {isKnockout ? '🏆 Knockout' : '🎯 Au temps'}
+            </span>
+            <span style={{ color: 'var(--gray)', fontSize: 14 }}>
+              {new Date(tournament.tournament_date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            </span>
           </div>
         </div>
 
@@ -251,30 +340,52 @@ export default function TournamentPage() {
         </div>
       </div>
 
-      {/* SETUP */}
+      {/* ============================================
+          SETUP (commun aux 2 types)
+          ============================================ */}
       {tournament.status === 'setup' && (
         <>
-          <SetupPanel tournament={tournament} onUpdate={updateSetup} isAdmin={isAdmin} numRoundsPossible={numRoundsPossible} />
+          <SetupPanel tournament={tournament} onUpdate={updateSetup} isAdmin={isAdmin} numRoundsPossible={numRoundsPossible} isKnockout={isKnockout} numTeams={teams.length} />
           <TeamsPanel teams={teams} isAdmin={isAdmin} p1={p1} p2={p2} setP1={setP1} setP2={setP2} addTeam={addTeam} deleteTeam={deleteTeam} onEditTeam={setEditingTeam} onOpenDraw={() => setShowDrawModal(true)} />
 
           {isAdmin && (
             <div className="card" style={{ marginTop: 24, textAlign: 'center' }}>
-              <div style={{ marginBottom: 16, color: 'var(--gray)' }}>
-                {teams.length < 2
-                  ? `Ajoute au moins 2 équipes (${teams.length} actuelle${teams.length > 1 ? 's' : ''})`
-                  : numRoundsPossible === 0
-                  ? 'Durée totale trop courte'
-                  : `Prêt : ${teams.length} équipes · ${numRoundsPossible} round${numRoundsPossible > 1 ? 's' : ''} · ${tournament.num_courts} terrain${tournament.num_courts > 1 ? 's' : ''}`}
-              </div>
-              <button className="btn btn-primary" onClick={launchTournament} disabled={teams.length < 2 || numRoundsPossible === 0} style={{ fontSize: 22, padding: '16px 40px' }}>🚀 Lancer le tournoi</button>
+              {isKnockout ? (
+                <>
+                  <div style={{ marginBottom: 16, color: 'var(--gray)' }}>
+                    {teams.length < 4
+                      ? `Ajoute au moins 4 équipes (${teams.length} actuelle${teams.length > 1 ? 's' : ''})`
+                      : `Prêt : ${teams.length} équipes → ${getNumPools(teams.length)} poules · phase de poules au temps`}
+                  </div>
+                  <button className="btn btn-primary" onClick={launchKnockoutPools} disabled={teams.length < 4} style={{ fontSize: 22, padding: '16px 40px' }}>
+                    🏆 Lancer les poules
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div style={{ marginBottom: 16, color: 'var(--gray)' }}>
+                    {teams.length < 2
+                      ? `Ajoute au moins 2 équipes (${teams.length} actuelle${teams.length > 1 ? 's' : ''})`
+                      : numRoundsPossible === 0
+                      ? 'Durée totale trop courte'
+                      : `Prêt : ${teams.length} équipes · ${numRoundsPossible} round${numRoundsPossible > 1 ? 's' : ''} · ${tournament.num_courts} terrain${tournament.num_courts > 1 ? 's' : ''}`}
+                  </div>
+                  <button className="btn btn-primary" onClick={launchPointsTournament} disabled={teams.length < 2 || numRoundsPossible === 0} style={{ fontSize: 22, padding: '16px 40px' }}>
+                    🚀 Lancer le tournoi
+                  </button>
+                </>
+              )}
             </div>
           )}
         </>
       )}
 
-      {/* RUNNING */}
+      {/* ============================================
+          RUNNING
+          ============================================ */}
       {tournament.status === 'running' && (
         <>
+          {/* Timer (commun) */}
           {isAdmin && (
             <MatchTimer
               matchDuration={tournament.match_duration_minutes}
@@ -292,41 +403,53 @@ export default function TournamentPage() {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 8, marginTop: 8, marginBottom: 20, overflowX: 'auto', paddingBottom: 8 }}>
-            {Array.from({ length: totalRounds }, (_, i) => i + 1).map((r) => {
-              const isFinished = finishedRounds.includes(r)
-              const isCurrent = r === currentRound
-              return (
-                <button
-                  key={r}
-                  onClick={() => setCurrentRound(r)}
-                  style={{
-                    padding: '10px 18px',
-                    border: `2px solid ${isCurrent ? 'var(--neon)' : 'var(--line)'}`,
-                    background: isCurrent ? 'var(--neon)' : 'var(--bg-mid)',
-                    color: isCurrent ? 'var(--bg-deep)' : 'var(--white)',
-                    fontFamily: 'var(--font-display)',
-                    letterSpacing: '0.1em',
-                    borderRadius: 8,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  R{r} {isFinished && '✓'}
-                </button>
-              )
-            })}
-          </div>
+          {/* ===== VUE SELON LE TYPE ===== */}
+          {isKnockout ? (
+            <>
+              <KnockoutView
+                tournament={tournament}
+                teams={teams}
+                matches={matches}
+                isAdmin={isAdmin}
+                updateScore={updateScore}
+                toggleMatchFinished={toggleMatchFinished}
+                onEditTeam={setEditingTeam}
+              />
 
-          <CourtsLayout
-            matches={matches.filter((m) => m.round_number === currentRound)}
-            teams={teams}
-            isAdmin={isAdmin}
-            updateScore={updateScore}
-            toggleMatchFinished={toggleMatchFinished}
-            numCourts={tournament.num_courts}
-          />
+              {/* Bouton transition poules -> finales */}
+              {isAdmin && tournament.knockout_phase === 'pools' && (
+                <div className="card" style={{ marginTop: 24, textAlign: 'center' }}>
+                  <div style={{ marginBottom: 16, color: poolMatchesAllFinished ? 'var(--neon)' : 'var(--gray)' }}>
+                    {poolMatchesAllFinished
+                      ? '✅ Toutes les poules sont terminées !'
+                      : '⏳ Termine tous les matchs de poule, puis lance les phases finales'}
+                  </div>
+                  <button className="btn btn-primary" onClick={startFinals} style={{ fontSize: 20, padding: '14px 32px', background: 'var(--coral)', color: 'var(--bg-deep)' }}>
+                    🏆 Lancer les phases finales
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {/* Sélecteur de round (au temps) */}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, marginBottom: 20, overflowX: 'auto', paddingBottom: 8 }}>
+                {Array.from({ length: totalRounds }, (_, i) => i + 1).map((r) => {
+                  const isFinished = finishedRounds.includes(r)
+                  const isCurrent = r === currentRound
+                  return (
+                    <button key={r} onClick={() => setCurrentRound(r)} style={{ padding: '10px 18px', border: `2px solid ${isCurrent ? 'var(--neon)' : 'var(--line)'}`, background: isCurrent ? 'var(--neon)' : 'var(--bg-mid)', color: isCurrent ? 'var(--bg-deep)' : 'var(--white)', fontFamily: 'var(--font-display)', letterSpacing: '0.1em', borderRadius: 8, whiteSpace: 'nowrap' }}>
+                      R{r} {isFinished && '✓'}
+                    </button>
+                  )
+                })}
+              </div>
 
-          <Standings standings={standings} isAdmin={isAdmin} onEditTeam={setEditingTeam} />
+              <CourtsLayout matches={matches.filter((m) => m.round_number === currentRound)} teams={teams} isAdmin={isAdmin} updateScore={updateScore} toggleMatchFinished={toggleMatchFinished} />
+
+              <Standings standings={standings} isAdmin={isAdmin} onEditTeam={setEditingTeam} />
+            </>
+          )}
 
           {isAdmin && (
             <div style={{ display: 'flex', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
@@ -337,28 +460,25 @@ export default function TournamentPage() {
         </>
       )}
 
-      {/* FINISHED */}
+      {/* ============================================
+          FINISHED
+          ============================================ */}
       {tournament.status === 'finished' && (
         <>
-          <div className="card" style={{ textAlign: 'center', marginBottom: 24 }}>
-            <div style={{ fontSize: 64, marginBottom: 8 }}>🏆</div>
-            <h2 className="h-display" style={{ fontSize: 36, color: 'var(--neon)' }}>TOURNOI TERMINÉ</h2>
-            {standings.length > 0 && (
-              <p style={{ marginTop: 12, color: 'var(--sand)' }}>
-                Vainqueurs : <strong>{standings[0].team.team_name}</strong>
-              </p>
-            )}
-          </div>
-
-          <Standings standings={standings} isAdmin={isAdmin} onEditTeam={setEditingTeam} />
-
-          <h3 className="h-display" style={{ fontSize: 24, marginTop: 32, marginBottom: 16 }}>DÉTAIL DES MATCHS</h3>
-          {Array.from({ length: totalRounds }, (_, i) => i + 1).map((r) => (
-            <div key={r} style={{ marginBottom: 24 }}>
-              <h4 style={{ marginBottom: 12, color: 'var(--sand-warm)', fontFamily: 'var(--font-display)', fontSize: 20 }}>ROUND {r}</h4>
-              <CourtsLayout matches={matches.filter((m) => m.round_number === r)} teams={teams} isAdmin={false} readOnly numCourts={tournament.num_courts} />
-            </div>
-          ))}
+          {isKnockout ? (
+            <KnockoutView tournament={tournament} teams={teams} matches={matches} isAdmin={false} updateScore={updateScore} toggleMatchFinished={toggleMatchFinished} onEditTeam={setEditingTeam} />
+          ) : (
+            <>
+              <div className="card" style={{ textAlign: 'center', marginBottom: 24 }}>
+                <div style={{ fontSize: 64, marginBottom: 8 }}>🏆</div>
+                <h2 className="h-display" style={{ fontSize: 36, color: 'var(--neon)' }}>TOURNOI TERMINÉ</h2>
+                {standings.length > 0 && (
+                  <p style={{ marginTop: 12, color: 'var(--sand)' }}>Vainqueurs : <strong>{standings[0].team.team_name}</strong></p>
+                )}
+              </div>
+              <Standings standings={standings} isAdmin={isAdmin} onEditTeam={setEditingTeam} />
+            </>
+          )}
 
           {isAdmin && (
             <div style={{ marginTop: 24 }}>
@@ -399,10 +519,10 @@ export default function TournamentPage() {
 }
 
 // ============================================
-// SOUS-COMPOSANTS
+// SOUS-COMPOSANTS COMMUNS
 // ============================================
 
-function SetupPanel({ tournament, onUpdate, isAdmin, numRoundsPossible }) {
+function SetupPanel({ tournament, onUpdate, isAdmin, numRoundsPossible, isKnockout, numTeams }) {
   return (
     <div className="card" style={{ marginBottom: 24 }}>
       <h2 className="h-display" style={{ fontSize: 24, marginBottom: 20, color: 'var(--sand)' }}>⚙ CONFIGURATION</h2>
@@ -426,9 +546,17 @@ function SetupPanel({ tournament, onUpdate, isAdmin, numRoundsPossible }) {
       </div>
       <div style={{ marginTop: 20, padding: 16, background: 'var(--bg-deep)', borderRadius: 8, border: '1px solid var(--line)' }}>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '0.15em', color: 'var(--sand-warm)' }}>📊 SIMULATION</div>
-        <div style={{ marginTop: 8, fontSize: 15 }}>
-          {numRoundsPossible} round{numRoundsPossible > 1 ? 's' : ''} possibles · {numRoundsPossible * tournament.num_courts} match{numRoundsPossible * tournament.num_courts > 1 ? 's' : ''} max
-        </div>
+        {isKnockout ? (
+          <div style={{ marginTop: 8, fontSize: 15 }}>
+            {numTeams >= 4
+              ? `${numTeams} équipes → ${getNumPools(numTeams)} poules de ~${Math.ceil(numTeams / getNumPools(numTeams))} · puis ${getNumPools(numTeams) === 2 ? 'demi-finales' : 'quarts'} → finale`
+              : 'Ajoute au moins 4 équipes'}
+          </div>
+        ) : (
+          <div style={{ marginTop: 8, fontSize: 15 }}>
+            {numRoundsPossible} round{numRoundsPossible > 1 ? 's' : ''} possibles · {numRoundsPossible * tournament.num_courts} match{numRoundsPossible * tournament.num_courts > 1 ? 's' : ''} max
+          </div>
+        )}
       </div>
     </div>
   )
@@ -438,12 +566,9 @@ function TeamsPanel({ teams, isAdmin, p1, p2, setP1, setP2, addTeam, deleteTeam,
   return (
     <div className="card" style={{ marginBottom: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-        <h2 className="h-display" style={{ fontSize: 24, color: 'var(--sand)' }}>
-          👥 ÉQUIPES <span style={{ color: 'var(--gray)', fontSize: 18 }}>({teams.length})</span>
-        </h2>
+        <h2 className="h-display" style={{ fontSize: 24, color: 'var(--sand)' }}>👥 ÉQUIPES <span style={{ color: 'var(--gray)', fontSize: 18 }}>({teams.length})</span></h2>
         {isAdmin && teams.length >= 2 && <button className="btn btn-secondary btn-small" onClick={onOpenDraw}>🎲 Tirage au sort</button>}
       </div>
-
       {isAdmin && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, marginBottom: 20 }}>
           <input className="input" placeholder="Joueur 1" value={p1} onChange={(e) => setP1(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addTeam()} />
@@ -451,9 +576,8 @@ function TeamsPanel({ teams, isAdmin, p1, p2, setP1, setP2, addTeam, deleteTeam,
           <button className="btn btn-primary" onClick={addTeam}>+</button>
         </div>
       )}
-
       {teams.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 32, color: 'var(--gray)' }}>{isAdmin ? 'Ajoute la première équipe ↑' : 'Aucune équipe pour le moment'}</div>
+        <div style={{ textAlign: 'center', padding: 32, color: 'var(--gray)' }}>{isAdmin ? 'Ajoute la première équipe ↑' : 'Aucune équipe'}</div>
       ) : (
         <div style={{ display: 'grid', gap: 8 }}>
           {teams.map((t, idx) => (
@@ -481,11 +605,7 @@ function TeamsPanel({ teams, isAdmin, p1, p2, setP1, setP2, addTeam, deleteTeam,
 
 function CourtsLayout({ matches, teams, isAdmin, updateScore, toggleMatchFinished, readOnly }) {
   const teamById = (tid) => teams.find((t) => t.id === tid)
-
-  if (matches.length === 0) {
-    return <div style={{ padding: 32, textAlign: 'center', color: 'var(--gray)' }}>Aucun match</div>
-  }
-
+  if (matches.length === 0) return <div style={{ padding: 32, textAlign: 'center', color: 'var(--gray)' }}>Aucun match</div>
   const courtsUsed = [...new Set(matches.map((m) => m.court_number))].sort((a, b) => a - b)
 
   return (
@@ -498,13 +618,9 @@ function CourtsLayout({ matches, teams, isAdmin, updateScore, toggleMatchFinishe
               🎾 TERRAIN {courtNum}
             </div>
             <div style={{ display: 'grid', gap: 8, border: '1px solid var(--line)', borderTop: 'none', borderRadius: '0 0 12px 12px', padding: 8, background: 'rgba(17, 42, 64, 0.4)' }}>
-              {courtMatches.map((m) => {
-                const teamA = teamById(m.team_a_id)
-                const teamB = teamById(m.team_b_id)
-                return (
-                  <CourtMatchCard key={m.id} match={m} teamA={teamA} teamB={teamB} isAdmin={isAdmin} readOnly={readOnly} updateScore={updateScore} toggleMatchFinished={toggleMatchFinished} />
-                )
-              })}
+              {courtMatches.map((m) => (
+                <CourtMatchCard key={m.id} match={m} teamA={teamById(m.team_a_id)} teamB={teamById(m.team_b_id)} isAdmin={isAdmin} readOnly={readOnly} updateScore={updateScore} toggleMatchFinished={toggleMatchFinished} />
+              ))}
             </div>
           </div>
         )
@@ -514,22 +630,8 @@ function CourtsLayout({ matches, teams, isAdmin, updateScore, toggleMatchFinishe
 }
 
 function CourtMatchCard({ match, teamA, teamB, isAdmin, readOnly, updateScore, toggleMatchFinished }) {
-  const scoreInputStyle = {
-    width: 60,
-    padding: '10px 8px',
-    fontSize: 24,
-    fontWeight: 700,
-    textAlign: 'center',
-    fontFamily: 'var(--font-display)',
-  }
-
-  const scoreDisplayStyle = {
-    fontFamily: 'var(--font-display)',
-    fontSize: 26,
-    fontWeight: 700,
-    minWidth: 32,
-    textAlign: 'center',
-  }
+  const scoreInputStyle = { width: 60, padding: '10px 8px', fontSize: 24, fontWeight: 700, textAlign: 'center', fontFamily: 'var(--font-display)' }
+  const scoreDisplayStyle = { fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 700, minWidth: 32, textAlign: 'center' }
 
   return (
     <div style={{ background: match.is_finished ? 'rgba(46, 213, 115, 0.08)' : 'var(--bg-deep)', border: `1px solid ${match.is_finished ? 'rgba(46, 213, 115, 0.3)' : 'var(--line)'}`, borderRadius: 10, padding: 10 }}>
@@ -539,67 +641,29 @@ function CourtMatchCard({ match, teamA, teamB, isAdmin, readOnly, updateScore, t
           <div style={{ color: 'var(--gray)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{teamA?.player2_name}</div>
         </div>
         {isAdmin && !readOnly ? (
-          <input
-            className="input"
-            type="number"
-            inputMode="numeric"
-            min="0"
-            max="99"
-            value={match.score_a}
-            onChange={(e) => updateScore(match.id, 'score_a', e.target.value)}
-            onFocus={(e) => e.target.select()}
-            style={scoreInputStyle}
-          />
+          <input className="input" type="number" inputMode="numeric" min="0" max="99" value={match.score_a} onChange={(e) => updateScore(match.id, 'score_a', e.target.value)} onFocus={(e) => e.target.select()} style={scoreInputStyle} />
         ) : (
           <div style={scoreDisplayStyle}>{match.score_a}</div>
         )}
       </div>
-
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0' }}>
         <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
         <span style={{ color: 'var(--gray)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.2em' }}>VS</span>
         <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
       </div>
-
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{teamB?.player1_name}</div>
           <div style={{ color: 'var(--gray)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{teamB?.player2_name}</div>
         </div>
         {isAdmin && !readOnly ? (
-          <input
-            className="input"
-            type="number"
-            inputMode="numeric"
-            min="0"
-            max="99"
-            value={match.score_b}
-            onChange={(e) => updateScore(match.id, 'score_b', e.target.value)}
-            onFocus={(e) => e.target.select()}
-            style={scoreInputStyle}
-          />
+          <input className="input" type="number" inputMode="numeric" min="0" max="99" value={match.score_b} onChange={(e) => updateScore(match.id, 'score_b', e.target.value)} onFocus={(e) => e.target.select()} style={scoreInputStyle} />
         ) : (
           <div style={scoreDisplayStyle}>{match.score_b}</div>
         )}
       </div>
-
       {isAdmin && !readOnly && (
-        <button
-          onClick={() => toggleMatchFinished(match)}
-          style={{
-            width: '100%',
-            marginTop: 10,
-            padding: '8px',
-            fontSize: 11,
-            fontFamily: 'var(--font-display)',
-            letterSpacing: '0.1em',
-            borderRadius: 6,
-            background: match.is_finished ? 'transparent' : 'var(--neon)',
-            color: match.is_finished ? 'var(--gray)' : 'var(--bg-deep)',
-            border: match.is_finished ? '1px solid var(--line)' : 'none',
-            cursor: 'pointer',
-          }}
-        >
+        <button onClick={() => toggleMatchFinished(match)} style={{ width: '100%', marginTop: 10, padding: '8px', fontSize: 11, fontFamily: 'var(--font-display)', letterSpacing: '0.1em', borderRadius: 6, background: match.is_finished ? 'transparent' : 'var(--neon)', color: match.is_finished ? 'var(--gray)' : 'var(--bg-deep)', border: match.is_finished ? '1px solid var(--line)' : 'none', cursor: 'pointer' }}>
           {match.is_finished ? '↺ ROUVRIR' : '✓ VALIDER'}
         </button>
       )}
@@ -655,7 +719,6 @@ function Standings({ standings, isAdmin, onEditTeam }) {
 function EditTeamModal({ team, onSave, onClose }) {
   const [p1, setP1] = useState(team.player1_name)
   const [p2, setP2] = useState(team.player2_name)
-
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -702,17 +765,12 @@ function EditNameModal({ currentName, onSave, onClose }) {
 function EditSettingsModal({ tournament, onSave, onClose }) {
   const [matchDur, setMatchDur] = useState(tournament.match_duration_minutes)
   const [breakDur, setBreakDur] = useState(tournament.break_duration_minutes)
-  const handleSave = () => {
-    onSave({
-      match_duration_minutes: parseInt(matchDur) || 1,
-      break_duration_minutes: parseInt(breakDur) || 0,
-    })
-  }
+  const handleSave = () => onSave({ match_duration_minutes: parseInt(matchDur) || 1, break_duration_minutes: parseInt(breakDur) || 0 })
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <h2 className="h-display" style={{ fontSize: 28, marginBottom: 8 }}>⚙ MODIFIER LES DURÉES</h2>
-        <p style={{ color: 'var(--gray)', marginBottom: 20, fontSize: 14 }}>Les changements s'appliquent au prochain timer.</p>
+        <p style={{ color: 'var(--gray)', marginBottom: 20, fontSize: 14 }}>S'applique au prochain timer.</p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
             <label className="label">Durée match (min)</label>
@@ -732,15 +790,5 @@ function EditSettingsModal({ tournament, onSave, onClose }) {
   )
 }
 
-const thStyle = {
-  padding: '12px 8px',
-  textAlign: 'center',
-  fontFamily: 'var(--font-display)',
-  fontSize: 13,
-  letterSpacing: '0.1em',
-  color: 'var(--sand-warm)',
-}
-
-const tdStyle = {
-  padding: '12px 8px',
-}
+const thStyle = { padding: '12px 8px', textAlign: 'center', fontFamily: 'var(--font-display)', fontSize: 13, letterSpacing: '0.1em', color: 'var(--sand-warm)' }
+const tdStyle = { padding: '12px 8px' }
