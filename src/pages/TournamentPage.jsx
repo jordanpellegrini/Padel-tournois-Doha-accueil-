@@ -220,8 +220,8 @@ export default function TournamentPage() {
     const numPools = tournament.num_pools || getNumPools(teams.length)
     const maxPoolRound = Math.max(...poolMatches.map((m) => m.round_number), 0)
 
-    // Génère le bracket
-    const bracket = generateFinalsBracket(numPools, maxPoolRound + 1)
+    // Génère le bracket (en répartissant sur le nombre de terrains du tournoi)
+    const bracket = generateFinalsBracket(numPools, maxPoolRound + 1, tournament.num_courts || 4)
     await supabase.from('matches').insert(
       bracket.map((m) => ({
         tournament_id: id,

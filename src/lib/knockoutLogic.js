@@ -1,30 +1,17 @@
 // ============================================
-// LOGIQUE KNOCKOUT (poules + phases finales)
+// LOGIQUE KNOCKOUT (poules + phases finales + consolante)
 // ============================================
 import { shuffle, computeStandings } from './tournamentLogic'
 
-/**
- * Détermine le nombre de poules selon le nombre d'équipes
- * <= 8 équipes : 2 poules
- * > 8 équipes : 4 poules
- */
 export function getNumPools(numTeams) {
   if (numTeams <= 8) return 2
   return 4
 }
 
-/**
- * Nom lisible d'une poule (0 -> A, 1 -> B, ...)
- */
 export function poolName(index) {
   return String.fromCharCode(65 + index)
 }
 
-/**
- * Répartit les équipes dans les poules en serpentin (pour équilibrer)
- * Retourne un tableau de pool_index assigné à chaque équipe (dans l'ordre mélangé)
- * @returns {Array} [{team, poolIndex}]
- */
 export function distributeIntoPools(teams, numPools) {
   const shuffled = shuffle(teams)
   const result = []
@@ -44,9 +31,6 @@ export function distributeIntoPools(teams, numPools) {
   return result
 }
 
-/**
- * Round-robin (algorithme du cercle) pour une poule
- */
 function buildRoundRobinRounds(teamIds) {
   const teams = [...teamIds]
   if (teams.length % 2 === 1) teams.push(null)
@@ -71,32 +55,17 @@ function buildRoundRobinRounds(teamIds) {
   return rounds
 }
 
-/**
- * Génère les matchs de poule pour le knockout
- * Toutes les poules jouent leurs round-robin en parallèle, réparties sur les terrains
- *
- * @param {Array} teamsWithPool - [{id, pool_index, ...}]
- * @param {number} numPools
- * @param {number} numCourts
- * @returns {Array} matchs [{phase:'pool', pool_index, round_number, court_number, team_a_id, team_b_id}]
- */
 export function generatePoolMatches(teamsWithPool, numPools, numCourts) {
-  // Pour chaque poule, on génère les rounds round-robin
-  const poolRounds = [] // poolRounds[poolIndex] = [[matchs R1], [matchs R2], ...]
+  const poolRounds = []
   for (let p = 0; p < numPools; p++) {
     const poolTeams = teamsWithPool.filter((t) => t.pool_index === p).map((t) => t.id)
     poolRounds[p] = buildRoundRobinRounds(poolTeams)
   }
-
-  // Nombre max de rounds parmi toutes les poules
   const maxRounds = Math.max(...poolRounds.map((r) => r.length), 0)
-
-  // On entremêle : à chaque "round global", on prend le round de chaque poule
   const matches = []
   let globalRound = 0
 
   for (let r = 0; r < maxRounds; r++) {
-    // Collecte tous les matchs de ce round across pools
     const roundMatchesAllPools = []
     for (let p = 0; p < numPools; p++) {
       if (poolRounds[p][r]) {
@@ -105,14 +74,10 @@ export function generatePoolMatches(teamsWithPool, numPools, numCourts) {
         })
       }
     }
-
-    // Répartit ces matchs sur les terrains (numCourts par round global)
     let courtCounter = 0
     let currentGlobalRound = globalRound + 1
-
     roundMatchesAllPools.forEach((m) => {
       if (courtCounter >= numCourts) {
-        // Nouveau round global si on dépasse le nombre de terrains
         currentGlobalRound++
         courtCounter = 0
       }
@@ -127,17 +92,11 @@ export function generatePoolMatches(teamsWithPool, numPools, numCourts) {
       })
       courtCounter++
     })
-
     globalRound = currentGlobalRound
   }
-
   return matches
 }
 
-/**
- * Calcule le classement par poule
- * @returns {Object} { poolIndex: [classement trié] }
- */
 export function computePoolStandings(teams, matches, numPools) {
   const standings = {}
   for (let p = 0; p < numPools; p++) {
@@ -149,78 +108,62 @@ export function computePoolStandings(teams, matches, numPools) {
 }
 
 /**
- * Génère les matchs de phase finale (bracket) selon le nombre de poules.
- * Les équipes sont des placeholders au départ ("1er Poule A", etc.)
- * et seront résolues quand les poules seront terminées.
- *
- * Pour 2 poules :
- *   DF1 : 1er A vs 2e B
- *   DF2 : 1er B vs 2e A
- *   FINALE : Vainqueur DF1 vs Vainqueur DF2
- *   3E PLACE : Perdant DF1 vs Perdant DF2
- *
- * Pour 4 poules :
- *   QF1 : 1er A vs 2e B
- *   QF2 : 1er B vs 2e A
- *   QF3 : 1er C vs 2e D
- *   QF4 : 1er D vs 2e C
- *   DF1 : Vainqueur QF1 vs Vainqueur QF3
- *   DF2 : Vainqueur QF2 vs Vainqueur QF4
- *   FINALE : Vainqueur DF1 vs Vainqueur DF2
- *   3E PLACE : Perdant DF1 vs Perdant DF2
- *
- * @returns {Array} matchs de phase finale
+ * Génère le bracket complet (principal + consolante) avec affectation aux terrains.
+ * @param {number} numPools
+ * @param {number} startRound
+ * @param {number} numCourts
  */
-export function generateFinalsBracket(numPools, startRound) {
+export function generateFinalsBracket(numPools, startRound, numCourts = 4) {
   const matches = []
   let round = startRound
 
   if (numPools === 2) {
-    // Demi-finales
-    matches.push({
-      phase: 'semi',
-      round_number: round,
-      court_number: 1,
-      bracket_label: 'DEMI-FINALE 1',
-      team_a_placeholder: '1er Poule A',
-      team_b_placeholder: '2e Poule B',
-      team_a_id: null,
-      team_b_id: null,
+    // ===== TABLEAU PRINCIPAL : demi-finales =====
+    // ===== TABLEAU CONSOLANTE : demi-consolantes =====
+    // On joue les 4 demies en même temps (réparties sur les terrains)
+    const semisRound = round
+    const semis = [
+      { phase: 'semi', bracket_label: 'DEMI-FINALE 1', a: '1er Poule A', b: '2e Poule B' },
+      { phase: 'semi', bracket_label: 'DEMI-FINALE 2', a: '1er Poule B', b: '2e Poule A' },
+      { phase: 'cons-semi', bracket_label: 'CONSOLANTE 1', a: '3e Poule A', b: '4e Poule B' },
+      { phase: 'cons-semi', bracket_label: 'CONSOLANTE 2', a: '3e Poule B', b: '4e Poule A' },
+    ]
+    semis.forEach((m, i) => {
+      matches.push({
+        phase: m.phase,
+        round_number: semisRound + Math.floor(i / numCourts),
+        court_number: (i % numCourts) + 1,
+        bracket_label: m.bracket_label,
+        team_a_placeholder: m.a,
+        team_b_placeholder: m.b,
+        team_a_id: null,
+        team_b_id: null,
+      })
     })
-    matches.push({
-      phase: 'semi',
-      round_number: round,
-      court_number: 2,
-      bracket_label: 'DEMI-FINALE 2',
-      team_a_placeholder: '1er Poule B',
-      team_b_placeholder: '2e Poule A',
-      team_a_id: null,
-      team_b_id: null,
-    })
-    round++
-    // Finale + 3e place
-    matches.push({
-      phase: 'third',
-      round_number: round,
-      court_number: 1,
-      bracket_label: '3E PLACE',
-      team_a_placeholder: 'Perdant DF1',
-      team_b_placeholder: 'Perdant DF2',
-      team_a_id: null,
-      team_b_id: null,
-    })
-    matches.push({
-      phase: 'final',
-      round_number: round,
-      court_number: 2,
-      bracket_label: 'FINALE',
-      team_a_placeholder: 'Vainqueur DF1',
-      team_b_placeholder: 'Vainqueur DF2',
-      team_a_id: null,
-      team_b_id: null,
+
+    // ===== FINALES (principal + consolante) =====
+    const finalsRound = semisRound + Math.ceil(semis.length / numCourts)
+    const finals = [
+      { phase: 'final', bracket_label: 'FINALE', a: 'Vainqueur DF1', b: 'Vainqueur DF2' },
+      { phase: 'third', bracket_label: '3E PLACE', a: 'Perdant DF1', b: 'Perdant DF2' },
+      { phase: 'cons-final', bracket_label: 'FINALE CONSOLANTE', a: 'Vainqueur DCF1', b: 'Vainqueur DCF2' },
+      { phase: 'cons-third', bracket_label: '7E PLACE', a: 'Perdant DCF1', b: 'Perdant DCF2' },
+    ]
+    finals.forEach((m, i) => {
+      matches.push({
+        phase: m.phase,
+        round_number: finalsRound + Math.floor(i / numCourts),
+        court_number: (i % numCourts) + 1,
+        bracket_label: m.bracket_label,
+        team_a_placeholder: m.a,
+        team_b_placeholder: m.b,
+        team_a_id: null,
+        team_b_id: null,
+      })
     })
   } else if (numPools === 4) {
-    // Quarts de finale
+    // Quarts de finale (8 équipes : les 2 premiers de chaque poule)
+    const qfRound = round
     const qfPairs = [
       ['1er Poule A', '2e Poule B', 'QUART 1'],
       ['1er Poule B', '2e Poule A', 'QUART 2'],
@@ -230,8 +173,8 @@ export function generateFinalsBracket(numPools, startRound) {
     qfPairs.forEach((qf, i) => {
       matches.push({
         phase: 'quarter',
-        round_number: round,
-        court_number: i + 1,
+        round_number: qfRound + Math.floor(i / numCourts),
+        court_number: (i % numCourts) + 1,
         bracket_label: qf[2],
         team_a_placeholder: qf[0],
         team_b_placeholder: qf[1],
@@ -239,85 +182,43 @@ export function generateFinalsBracket(numPools, startRound) {
         team_b_id: null,
       })
     })
-    round++
     // Demi-finales
-    matches.push({
-      phase: 'semi',
-      round_number: round,
-      court_number: 1,
-      bracket_label: 'DEMI-FINALE 1',
-      team_a_placeholder: 'Vainqueur QF1',
-      team_b_placeholder: 'Vainqueur QF3',
-      team_a_id: null,
-      team_b_id: null,
-    })
-    matches.push({
-      phase: 'semi',
-      round_number: round,
-      court_number: 2,
-      bracket_label: 'DEMI-FINALE 2',
-      team_a_placeholder: 'Vainqueur QF2',
-      team_b_placeholder: 'Vainqueur QF4',
-      team_a_id: null,
-      team_b_id: null,
-    })
-    round++
+    const sfRound = qfRound + Math.ceil(4 / numCourts)
+    matches.push(
+      { phase: 'semi', round_number: sfRound, court_number: 1, bracket_label: 'DEMI-FINALE 1', team_a_placeholder: 'Vainqueur QF1', team_b_placeholder: 'Vainqueur QF3', team_a_id: null, team_b_id: null },
+      { phase: 'semi', round_number: sfRound, court_number: 2, bracket_label: 'DEMI-FINALE 2', team_a_placeholder: 'Vainqueur QF2', team_b_placeholder: 'Vainqueur QF4', team_a_id: null, team_b_id: null }
+    )
     // Finale + 3e place
-    matches.push({
-      phase: 'third',
-      round_number: round,
-      court_number: 1,
-      bracket_label: '3E PLACE',
-      team_a_placeholder: 'Perdant DF1',
-      team_b_placeholder: 'Perdant DF2',
-      team_a_id: null,
-      team_b_id: null,
-    })
-    matches.push({
-      phase: 'final',
-      round_number: round,
-      court_number: 2,
-      bracket_label: 'FINALE',
-      team_a_placeholder: 'Vainqueur DF1',
-      team_b_placeholder: 'Vainqueur DF2',
-      team_a_id: null,
-      team_b_id: null,
-    })
+    const fRound = sfRound + 1
+    matches.push(
+      { phase: 'final', round_number: fRound, court_number: 1, bracket_label: 'FINALE', team_a_placeholder: 'Vainqueur DF1', team_b_placeholder: 'Vainqueur DF2', team_a_id: null, team_b_id: null },
+      { phase: 'third', round_number: fRound, court_number: 2, bracket_label: '3E PLACE', team_a_placeholder: 'Perdant DF1', team_b_placeholder: 'Perdant DF2', team_a_id: null, team_b_id: null }
+    )
   }
 
   return matches
 }
 
 /**
- * Résout les placeholders des phases finales :
- * - Quand les poules sont finies, remplit les quarts/demis avec les vraies équipes qualifiées
- * - Quand un match de bracket est fini, propage le vainqueur/perdant au tour suivant
- *
- * @param {Array} teams
- * @param {Array} matches (tous)
- * @param {number} numPools
- * @returns {Array} mises à jour à appliquer [{matchId, team_a_id, team_b_id}]
+ * Résout les placeholders du bracket
  */
 export function resolveBracket(teams, matches, numPools) {
   const updates = []
   const poolStandings = computePoolStandings(teams, matches, numPools)
 
-  // Vérifie si toutes les poules sont terminées
   const poolMatches = matches.filter((m) => m.phase === 'pool')
   const allPoolsFinished = poolMatches.length > 0 && poolMatches.every((m) => m.is_finished)
 
-  // Fonction utilitaire : récupère l'équipe à un rang donné d'une poule
   const getTeamAtRank = (poolIndex, rank) => {
     const st = poolStandings[poolIndex]
     if (!st || !st[rank - 1]) return null
     return st[rank - 1].team.id
   }
 
-  // Résout un placeholder texte en team_id
   const resolvePlaceholder = (placeholder) => {
     if (!placeholder) return null
 
-    // "1er Poule A", "2e Poule B"...
+    // "1er Poule A", "2e Poule B", "3e Poule A", "4e Poule B"...
     const poolMatch = placeholder.match(/(\d)e?r? Poule ([A-D])/)
     if (poolMatch) {
       if (!allPoolsFinished) return null
@@ -326,15 +227,24 @@ export function resolveBracket(teams, matches, numPools) {
       return getTeamAtRank(poolIdx, rank)
     }
 
-    // "Vainqueur QF1", "Perdant DF2"...
-    const bracketMatch = placeholder.match(/(Vainqueur|Perdant) (QF|DF)(\d)/)
+    // "Vainqueur QF1", "Perdant DF2", "Vainqueur DCF1", "Perdant DCF2"...
+    const bracketMatch = placeholder.match(/(Vainqueur|Perdant) (QF|DF|DCF)(\d)/)
     if (bracketMatch) {
       const type = bracketMatch[1]
-      const phaseCode = bracketMatch[2] // QF ou DF
+      const phaseCode = bracketMatch[2] // QF | DF | DCF
       const num = parseInt(bracketMatch[3])
-      const phaseName = phaseCode === 'QF' ? 'quarter' : 'semi'
-      // Trouve le match correspondant
-      const labelPrefix = phaseCode === 'QF' ? 'QUART' : 'DEMI-FINALE'
+      let phaseName, labelPrefix
+      if (phaseCode === 'QF') {
+        phaseName = 'quarter'
+        labelPrefix = 'QUART'
+      } else if (phaseCode === 'DF') {
+        phaseName = 'semi'
+        labelPrefix = 'DEMI-FINALE'
+      } else {
+        // DCF = demi-consolante
+        phaseName = 'cons-semi'
+        labelPrefix = 'CONSOLANTE'
+      }
       const sourceMatch = matches.find(
         (m) => m.phase === phaseName && m.bracket_label === `${labelPrefix} ${num}`
       )
@@ -347,30 +257,18 @@ export function resolveBracket(teams, matches, numPools) {
         return aWins ? sourceMatch.team_b_id : sourceMatch.team_a_id
       }
     }
-
     return null
   }
 
-  // Parcourt tous les matchs de phase finale et tente de résoudre leurs placeholders
   matches
     .filter((m) => m.phase !== 'pool')
     .forEach((m) => {
       let newA = m.team_a_id
       let newB = m.team_b_id
-
-      if (!m.team_a_id && m.team_a_placeholder) {
-        newA = resolvePlaceholder(m.team_a_placeholder)
-      }
-      if (!m.team_b_id && m.team_b_placeholder) {
-        newB = resolvePlaceholder(m.team_b_placeholder)
-      }
-
+      if (!m.team_a_id && m.team_a_placeholder) newA = resolvePlaceholder(m.team_a_placeholder)
+      if (!m.team_b_id && m.team_b_placeholder) newB = resolvePlaceholder(m.team_b_placeholder)
       if (newA !== m.team_a_id || newB !== m.team_b_id) {
-        updates.push({
-          matchId: m.id,
-          team_a_id: newA,
-          team_b_id: newB,
-        })
+        updates.push({ matchId: m.id, team_a_id: newA, team_b_id: newB })
       }
     })
 
@@ -378,7 +276,7 @@ export function resolveBracket(teams, matches, numPools) {
 }
 
 /**
- * Calcule le classement final d'un tournoi knockout terminé
+ * Classement final (inclut consolante)
  */
 export function computeKnockoutFinalRanking(teams, matches) {
   const teamById = (id) => teams.find((t) => t.id === id)
@@ -386,21 +284,28 @@ export function computeKnockoutFinalRanking(teams, matches) {
 
   const finalMatch = matches.find((m) => m.phase === 'final' && m.is_finished)
   const thirdMatch = matches.find((m) => m.phase === 'third' && m.is_finished)
+  const consFinalMatch = matches.find((m) => m.phase === 'cons-final' && m.is_finished)
+  const consThirdMatch = matches.find((m) => m.phase === 'cons-third' && m.is_finished)
 
   if (finalMatch && finalMatch.team_a_id && finalMatch.team_b_id) {
     const aWins = finalMatch.score_a > finalMatch.score_b
-    const winner = aWins ? finalMatch.team_a_id : finalMatch.team_b_id
-    const runner = aWins ? finalMatch.team_b_id : finalMatch.team_a_id
-    ranking.push({ rank: 1, team: teamById(winner), label: '🥇 Champion' })
-    ranking.push({ rank: 2, team: teamById(runner), label: '🥈 Finaliste' })
+    ranking.push({ rank: 1, team: teamById(aWins ? finalMatch.team_a_id : finalMatch.team_b_id), label: '🥇 Champion' })
+    ranking.push({ rank: 2, team: teamById(aWins ? finalMatch.team_b_id : finalMatch.team_a_id), label: '🥈 Finaliste' })
   }
-
   if (thirdMatch && thirdMatch.team_a_id && thirdMatch.team_b_id) {
     const aWins = thirdMatch.score_a > thirdMatch.score_b
-    const third = aWins ? thirdMatch.team_a_id : thirdMatch.team_b_id
-    const fourth = aWins ? thirdMatch.team_b_id : thirdMatch.team_a_id
-    ranking.push({ rank: 3, team: teamById(third), label: '🥉 3e place' })
-    ranking.push({ rank: 4, team: teamById(fourth), label: '4e place' })
+    ranking.push({ rank: 3, team: teamById(aWins ? thirdMatch.team_a_id : thirdMatch.team_b_id), label: '🥉 3e place' })
+    ranking.push({ rank: 4, team: teamById(aWins ? thirdMatch.team_b_id : thirdMatch.team_a_id), label: '4e place' })
+  }
+  if (consFinalMatch && consFinalMatch.team_a_id && consFinalMatch.team_b_id) {
+    const aWins = consFinalMatch.score_a > consFinalMatch.score_b
+    ranking.push({ rank: 5, team: teamById(aWins ? consFinalMatch.team_a_id : consFinalMatch.team_b_id), label: '5e place' })
+    ranking.push({ rank: 6, team: teamById(aWins ? consFinalMatch.team_b_id : consFinalMatch.team_a_id), label: '6e place' })
+  }
+  if (consThirdMatch && consThirdMatch.team_a_id && consThirdMatch.team_b_id) {
+    const aWins = consThirdMatch.score_a > consThirdMatch.score_b
+    ranking.push({ rank: 7, team: teamById(aWins ? consThirdMatch.team_a_id : consThirdMatch.team_b_id), label: '7e place' })
+    ranking.push({ rank: 8, team: teamById(aWins ? consThirdMatch.team_b_id : consThirdMatch.team_a_id), label: '8e place' })
   }
 
   return ranking
