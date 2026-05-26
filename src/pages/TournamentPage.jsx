@@ -23,6 +23,7 @@ import KnockoutView from '../components/KnockoutView'
 import CorporateView from '../components/CorporateView'
 import CorporateSetup from '../components/CorporateSetup'
 import FinalPodium from '../components/FinalPodium'
+import LogoBanner from '../components/LogoBanner'
 
 export default function TournamentPage() {
   const { id } = useParams()
@@ -402,6 +403,9 @@ export default function TournamentPage() {
 
   return (
     <main className="container">
+      {/* Bandeau des logos (version compacte) */}
+      <LogoBanner compact />
+
       {/* En-tête */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32, gap: 16, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
