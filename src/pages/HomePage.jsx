@@ -110,6 +110,7 @@ export default function HomePage() {
             {creating ? '⏳ Création...' : '🎾 Nouveau tournoi'}
           </button>
           <Link to="/history" className="btn btn-secondary" style={{ fontSize: 18 }}>📅 Historique</Link>
+          {isAdmin && <Link to="/players" className="btn btn-secondary" style={{ fontSize: 18 }}>👥 Joueurs</Link>}
           <Link to="/rules" className="btn btn-secondary" style={{ fontSize: 18 }}>📄 Règlement</Link>
         </div>
 
