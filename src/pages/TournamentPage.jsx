@@ -24,6 +24,7 @@ import CorporateView from '../components/CorporateView'
 import CorporateSetup from '../components/CorporateSetup'
 import FinalPodium from '../components/FinalPodium'
 import LogoBanner from '../components/LogoBanner'
+import PlayerAutocompleteInput from '../components/PlayerAutocompleteInput'
 
 export default function TournamentPage() {
   const { id } = useParams()
@@ -708,8 +709,8 @@ function TeamsPanel({ teams, isAdmin, p1, p2, setP1, setP2, addTeam, deleteTeam,
       </div>
       {isAdmin && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, marginBottom: 20 }}>
-          <input className="input" placeholder="Joueur 1" value={p1} onChange={(e) => setP1(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addTeam()} />
-          <input className="input" placeholder="Joueur 2" value={p2} onChange={(e) => setP2(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addTeam()} />
+          <PlayerAutocompleteInput placeholder="Joueur 1" value={p1} onChange={setP1} />
+          <PlayerAutocompleteInput placeholder="Joueur 2" value={p2} onChange={setP2} />
           <button className="btn btn-primary" onClick={addTeam}>+</button>
         </div>
       )}
@@ -864,11 +865,11 @@ function EditTeamModal({ team, onSave, onClose }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
             <label className="label">Joueur 1</label>
-            <input className="input" value={p1} onChange={(e) => setP1(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onSave(team.id, p1, p2)} autoFocus />
+            <PlayerAutocompleteInput value={p1} onChange={setP1} autoFocus />
           </div>
           <div>
             <label className="label">Joueur 2</label>
-            <input className="input" value={p2} onChange={(e) => setP2(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onSave(team.id, p1, p2)} />
+            <PlayerAutocompleteInput value={p2} onChange={setP2} />
           </div>
           <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
             <button className="btn btn-primary" onClick={() => onSave(team.id, p1, p2)} style={{ flex: 1 }}>💾 Sauvegarder</button>

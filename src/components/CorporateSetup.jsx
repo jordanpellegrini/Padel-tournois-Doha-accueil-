@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import PlayerAutocompleteInput from './PlayerAutocompleteInput'
 
 /**
  * Panneau de configuration spécifique au tournoi INTER-ENTREPRISES.
@@ -171,8 +172,18 @@ export default function CorporateSetup({
                         </div>
                       ) : isAdmin ? (
                         <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 6 }}>
-                          <input className="input" placeholder="Joueur 1" value={inp.p1 || ''} onChange={(e) => setInput(key, 'p1', e.target.value)} style={{ padding: '8px 10px', fontSize: 13 }} onKeyDown={(e) => e.key === 'Enter' && handleAdd(c, level)} />
-                          <input className="input" placeholder="Joueur 2" value={inp.p2 || ''} onChange={(e) => setInput(key, 'p2', e.target.value)} style={{ padding: '8px 10px', fontSize: 13 }} onKeyDown={(e) => e.key === 'Enter' && handleAdd(c, level)} />
+                          <PlayerAutocompleteInput
+                            value={inp.p1 || ''}
+                            onChange={(v) => setInput(key, 'p1', v)}
+                            placeholder="Joueur 1"
+                            style={{ }}
+                          />
+                          <PlayerAutocompleteInput
+                            value={inp.p2 || ''}
+                            onChange={(v) => setInput(key, 'p2', v)}
+                            placeholder="Joueur 2"
+                            style={{ }}
+                          />
                           <button className="btn btn-primary" onClick={() => handleAdd(c, level)} style={{ padding: '8px 14px' }}>+</button>
                         </div>
                       ) : (
