@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 
@@ -11,15 +11,30 @@ import { useAuth } from '../lib/auth'
  */
 export default function PlayersPage() {
   const { isAdmin } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [players, setPlayers] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [companyFilter, setCompanyFilter] = useState('')
+  // Filtre entreprise initialisé depuis l'URL (?company=...)
+  const [companyFilter, setCompanyFilter] = useState(searchParams.get('company') || '')
   const [editing, setEditing] = useState(null) // null | player | 'new'
   const [showImport, setShowImport] = useState(false)
   const [stats, setStats] = useState({}) // {playerId: {tournaments, wins}}
 
   useEffect(() => { load() }, [])
+
+  // Synchronise le filtre avec l'URL (au cas où on clique sur un autre logo)
+  useEffect(() => {
+    const c = searchParams.get('company') || ''
+    if (c !== companyFilter) setCompanyFilter(c)
+  }, [searchParams])
+
+  // Quand l'utilisateur change le filtre, on met à jour l'URL
+  const updateCompanyFilter = (v) => {
+    setCompanyFilter(v)
+    if (v) setSearchParams({ company: v })
+    else setSearchParams({})
+  }
 
   const load = async () => {
     const { data, error } = await supabase
@@ -76,10 +91,15 @@ export default function PlayersPage() {
     return [...s].sort()
   }, [players])
 
-  // Liste filtrée par recherche + entreprise
+  // Liste filtrée par recherche + entreprise (matching tolérant)
   const filteredPlayers = useMemo(() => {
     let list = players
-    if (companyFilter) list = list.filter((p) => p.company === companyFilter)
+    if (companyFilter) {
+      // Matching insensible à la casse et aux espaces multiples
+      const norm = (s) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+      const target = norm(companyFilter)
+      list = list.filter((p) => norm(p.company) === target)
+    }
     if (search.trim()) {
       const q = search.toLowerCase().trim()
       list = list.filter((p) =>
@@ -122,9 +142,16 @@ export default function PlayersPage() {
           <h1 className="h-display" style={{ fontSize: 'clamp(28px, 5vw, 40px)', marginTop: 8 }}>
             👥 ANNUAIRE <span style={{ color: 'var(--neon)' }}>JOUEURS</span>
           </h1>
-          <p style={{ color: 'var(--gray)', fontSize: 14, marginTop: 4 }}>
-            {players.length} joueur{players.length > 1 ? 's' : ''} enregistré{players.length > 1 ? 's' : ''}
-          </p>
+          {companyFilter ? (
+            <p style={{ color: 'var(--sand-warm)', fontSize: 14, marginTop: 4 }}>
+              🏢 Filtré sur <strong style={{ color: 'var(--neon)' }}>{companyFilter}</strong> · {filteredPlayers.length} joueur{filteredPlayers.length > 1 ? 's' : ''}
+              <button onClick={() => updateCompanyFilter('')} style={{ background: 'transparent', border: 'none', color: 'var(--gray)', cursor: 'pointer', marginLeft: 8, textDecoration: 'underline', fontSize: 12 }}>✕ tout afficher</button>
+            </p>
+          ) : (
+            <p style={{ color: 'var(--gray)', fontSize: 14, marginTop: 4 }}>
+              {players.length} joueur{players.length > 1 ? 's' : ''} enregistré{players.length > 1 ? 's' : ''}
+            </p>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn btn-secondary" onClick={() => setShowImport(true)}>📋 Import</button>
@@ -141,9 +168,13 @@ export default function PlayersPage() {
           </div>
           <div>
             <label className="label">Entreprise</label>
-            <select className="input" value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
+            <select className="input" value={companyFilter} onChange={(e) => updateCompanyFilter(e.target.value)}>
               <option value="">Toutes</option>
               {companies.map((c) => <option key={c} value={c}>{c}</option>)}
+              {/* Affiche le filtre venu de l'URL s'il n'est pas dans la liste actuelle */}
+              {companyFilter && !companies.includes(companyFilter) && (
+                <option value={companyFilter}>{companyFilter}</option>
+              )}
             </select>
           </div>
         </div>

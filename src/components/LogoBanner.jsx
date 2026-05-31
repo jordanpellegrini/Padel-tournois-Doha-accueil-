@@ -1,28 +1,39 @@
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../lib/auth'
+
 /**
- * Bandeau de logos : Doha Accueil + les entreprises participantes.
- * Tous sur une ligne, taille égale, dans des cartes blanches uniformes.
- * Réutilisable sur l'accueil, la page tournoi et le règlement.
- *
- * Les images des entreprises sont dans public/logos/ :
- *   dci.png, leonardo.png, asm.png, barbarians.png, dassault.png
- *
- * Props :
- *  - compact : version réduite (hauteur moindre) pour les en-têtes de page
+ * Bandeau de logos : Doha Accueil + entreprises participantes.
+ * Logos cliquables : clic → page Joueurs filtrée sur l'entreprise.
+ * (Le clic ne fonctionne que pour les organisateurs connectés.)
  */
 export default function LogoBanner({ compact = false }) {
+  const navigate = useNavigate()
+  const { isAdmin } = useAuth()
   const logoHeight = compact ? 42 : 56
   const cardPadding = compact ? '8px 10px' : '10px 14px'
 
-  // Logos des entreprises (servis depuis public/logos/)
+  // Chaque logo est lié au nom d'entreprise utilisé dans la fiche des joueurs.
+  // C'est ce qui permet de filtrer correctement quand on clique.
   const companyLogos = [
-    { src: '/logos/dci.png', alt: 'DCI' },
-    { src: '/logos/leonardo.png', alt: 'Leonardo Helicopters' },
-    { src: '/logos/asm.png', alt: 'Advanced Services & Maintenance' },
-    { src: '/logos/barbarians.png', alt: 'Barbarians' },
-    { src: '/logos/dassault.png', alt: 'Dassault Aviation' },
+    { src: '/logos/dci.png',        alt: 'DCI',                  company: 'DCI' },
+    { src: '/logos/leonardo.png',   alt: 'Leonardo Helicopters', company: 'Leonardo Helicopters' },
+    { src: '/logos/asm.png',        alt: 'Advanced Services & Maintenance', company: 'ASM' },
+    { src: '/logos/barbarians.png', alt: 'Barbarians',           company: 'Barbarians' },
+    { src: '/logos/dassault.png',   alt: 'Dassault Aviation',    company: 'Dassault Aviation' },
   ]
 
-  const cardStyle = {
+  const handleCompanyClick = (company) => {
+    if (!isAdmin) return // Non-connectés : pas de redirection
+    // Navigue vers /players avec le filtre entreprise pré-rempli
+    navigate(`/players?company=${encodeURIComponent(company)}`)
+  }
+
+  const handleDohaClick = () => {
+    if (!isAdmin) return
+    navigate('/players')
+  }
+
+  const cardStyleBase = {
     background: 'var(--white)',
     borderRadius: 10,
     padding: cardPadding,
@@ -30,7 +41,12 @@ export default function LogoBanner({ compact = false }) {
     alignItems: 'center',
     justifyContent: 'center',
     boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
   }
+
+  const clickableStyle = isAdmin
+    ? { cursor: 'pointer', border: 'none' }
+    : { cursor: 'default' }
 
   return (
     <div
@@ -43,8 +59,14 @@ export default function LogoBanner({ compact = false }) {
         marginBottom: compact ? 16 : 32,
       }}
     >
-      {/* Logo Doha Accueil (SVG recréé) dans une carte blanche, même taille */}
-      <div style={cardStyle}>
+      {/* Logo Doha Accueil — cliquable : toute la liste */}
+      <button
+        onClick={handleDohaClick}
+        style={{ ...cardStyleBase, ...clickableStyle }}
+        onMouseEnter={(e) => { if (isAdmin) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 18px rgba(212,255,58,0.3)' } }}
+        onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.15)' }}
+        title={isAdmin ? 'Voir tous les joueurs Doha Accueil' : undefined}
+      >
         <svg viewBox="0 0 400 140" style={{ height: logoHeight, width: 'auto' }} xmlns="http://www.w3.org/2000/svg">
           <g stroke="#1d6fcb" strokeWidth="1.2" fill="none" strokeLinecap="round">
             <path d="M 30 55 L 30 12 L 105 50 Z" strokeWidth="1.5" />
@@ -72,17 +94,24 @@ export default function LogoBanner({ compact = false }) {
           <text x="20" y="115" fontFamily="'Bebas Neue', Impact, sans-serif" fontSize="34" fontWeight="700" fill="#f4b400" letterSpacing="2">DOHA</text>
           <text x="120" y="115" fontFamily="'Bebas Neue', Impact, sans-serif" fontSize="34" fontWeight="400" fill="#1d6fcb" letterSpacing="2">ACCUEIL</text>
         </svg>
-      </div>
+      </button>
 
-      {/* Logos des entreprises */}
+      {/* Logos des entreprises — cliquables : joueurs de l'entreprise */}
       {companyLogos.map((logo) => (
-        <div key={logo.src} style={cardStyle}>
+        <button
+          key={logo.src}
+          onClick={() => handleCompanyClick(logo.company)}
+          style={{ ...cardStyleBase, ...clickableStyle }}
+          onMouseEnter={(e) => { if (isAdmin) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 18px rgba(212,255,58,0.3)' } }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.15)' }}
+          title={isAdmin ? `Voir les joueurs de ${logo.company}` : undefined}
+        >
           <img
             src={logo.src}
             alt={logo.alt}
-            style={{ height: logoHeight, width: 'auto', display: 'block', objectFit: 'contain' }}
+            style={{ height: logoHeight, width: 'auto', display: 'block', objectFit: 'contain', pointerEvents: 'none' }}
           />
-        </div>
+        </button>
       ))}
     </div>
   )
