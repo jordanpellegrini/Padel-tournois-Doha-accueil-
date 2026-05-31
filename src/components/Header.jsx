@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
+import { useAppSettings } from '../lib/useAppSettings'
 
 export default function Header() {
   const { currentUser, isSuperAdmin, login, register, logout } = useAuth()
@@ -160,23 +161,28 @@ export default function Header() {
 // PANNEAU DE GESTION (super-admin) : organisateurs + codes
 // ============================================
 function ManagePanel({ onClose }) {
-  const [tab, setTab] = useState('organizers') // 'organizers' | 'codes'
+  const [tab, setTab] = useState('organizers') // 'organizers' | 'codes' | 'settings'
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
         <h2 className="h-display" style={{ fontSize: 26, marginBottom: 16 }}>⚙ GESTION</h2>
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-          <button onClick={() => setTab('organizers')} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: 13, letterSpacing: '0.05em', background: tab === 'organizers' ? 'var(--neon)' : 'var(--bg-deep)', color: tab === 'organizers' ? 'var(--bg-deep)' : 'var(--gray)' }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+          <button onClick={() => setTab('organizers')} style={{ flex: '1 1 110px', padding: '10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: 13, letterSpacing: '0.05em', background: tab === 'organizers' ? 'var(--neon)' : 'var(--bg-deep)', color: tab === 'organizers' ? 'var(--bg-deep)' : 'var(--gray)' }}>
             👤 ORGANISATEURS
           </button>
-          <button onClick={() => setTab('codes')} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: 13, letterSpacing: '0.05em', background: tab === 'codes' ? 'var(--neon)' : 'var(--bg-deep)', color: tab === 'codes' ? 'var(--bg-deep)' : 'var(--gray)' }}>
+          <button onClick={() => setTab('codes')} style={{ flex: '1 1 110px', padding: '10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: 13, letterSpacing: '0.05em', background: tab === 'codes' ? 'var(--neon)' : 'var(--bg-deep)', color: tab === 'codes' ? 'var(--bg-deep)' : 'var(--gray)' }}>
             🎟 CODES
+          </button>
+          <button onClick={() => setTab('settings')} style={{ flex: '1 1 110px', padding: '10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'var(--font-display)', fontSize: 13, letterSpacing: '0.05em', background: tab === 'settings' ? 'var(--neon)' : 'var(--bg-deep)', color: tab === 'settings' ? 'var(--bg-deep)' : 'var(--gray)' }}>
+            ⚙ PARAMÈTRES
           </button>
         </div>
 
-        {tab === 'organizers' ? <OrganizersTab /> : <CodesTab />}
+        {tab === 'organizers' && <OrganizersTab />}
+        {tab === 'codes' && <CodesTab />}
+        {tab === 'settings' && <SettingsTab />}
 
         <button className="btn btn-ghost" onClick={onClose} style={{ width: '100%', marginTop: 20 }}>Fermer</button>
       </div>
@@ -297,6 +303,57 @@ function CodesTab() {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ============================================
+// ONGLET PARAMETRES (nom de l'organisation)
+// ============================================
+function SettingsTab() {
+  const { orgName, updateOrgName, ready } = useAppSettings()
+  const [name, setName] = useState('')
+  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (ready) setName(orgName)
+  }, [ready, orgName])
+
+  const save = async () => {
+    setSaving(true)
+    setError('')
+    const res = await updateOrgName(name)
+    setSaving(false)
+    if (res.success) {
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } else {
+      setError(res.error || 'Erreur')
+    }
+  }
+
+  return (
+    <div>
+      <p style={{ color: 'var(--gray)', fontSize: 13, marginBottom: 16 }}>
+        Ce nom apparaît sur la page d'accueil ("Organisé par ...") et le règlement.
+      </p>
+      <div style={{ background: 'var(--bg-deep)', border: '1px solid var(--line)', borderRadius: 10, padding: 16 }}>
+        <label className="label">Nom de l'organisation</label>
+        <input
+          className="input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="ex: Doha Accueil"
+          onKeyDown={(e) => e.key === 'Enter' && save()}
+        />
+        {error && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 10 }}>⚠️ {error}</div>}
+        {saved && <div style={{ color: 'var(--success)', fontSize: 13, marginTop: 10 }}>✓ Enregistré ! (rafraîchis la page pour voir le changement partout)</div>}
+        <button className="btn btn-primary" onClick={save} disabled={saving || !ready} style={{ width: '100%', marginTop: 14 }}>
+          {saving ? '⏳...' : '✓ Enregistrer'}
+        </button>
+      </div>
     </div>
   )
 }

@@ -3,10 +3,12 @@ import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { computeNumRounds } from '../lib/tournamentLogic'
 import { getNumPools } from '../lib/knockoutLogic'
+import { useAppSettings } from '../lib/useAppSettings'
 import LogoBanner from '../components/LogoBanner'
 
 export default function RulesPage() {
   const { id } = useParams()
+  const { orgName } = useAppSettings()
   const [tournament, setTournament] = useState(null)
   const [teamCount, setTeamCount] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -93,7 +95,7 @@ export default function RulesPage() {
             TOURNOI DE <span style={{ color: 'var(--neon)' }}>PÁDEL</span>
           </h1>
           <p style={{ color: 'var(--sand)', fontSize: 14, marginTop: 8, fontStyle: 'italic' }}>
-            Organisé par Doha Accueil
+            Organisé par {orgName}
             {isKnockout && <span style={{ color: 'var(--coral)' }}> · Format Knockout</span>}
           </p>
         </div>
@@ -211,7 +213,7 @@ export default function RulesPage() {
 
         {/* Footer */}
         <div style={{ marginTop: 32, paddingTop: 16, borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--gray)', fontSize: 11, fontFamily: 'var(--font-mono)', flexWrap: 'wrap', gap: 8 }}>
-          <span>Tournoi de Pádel · Doha Accueil</span>
+          <span>Tournoi de Pádel · {orgName}</span>
           <span style={{ color: 'var(--neon)', fontFamily: 'var(--font-display)', fontSize: 14, letterSpacing: '0.15em' }}>BONNE CHANCE À TOUS !</span>
           <span>Qatar · {new Date().getFullYear()}</span>
         </div>

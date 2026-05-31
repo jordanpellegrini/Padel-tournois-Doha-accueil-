@@ -2,11 +2,13 @@ import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import { useAppSettings } from '../lib/useAppSettings'
 import LogoBanner from '../components/LogoBanner'
 
 export default function HomePage() {
   const navigate = useNavigate()
   const { isAdmin, currentUser } = useAuth()
+  const { orgName } = useAppSettings()
   const [recentTournaments, setRecentTournaments] = useState([])
   const [creating, setCreating] = useState(false)
   const [showTypeModal, setShowTypeModal] = useState(false)
@@ -102,7 +104,7 @@ export default function HomePage() {
         </h1>
 
         <p style={{ color: 'var(--sand)', fontSize: 20, maxWidth: 560, margin: '0 auto 40px', fontWeight: 300, letterSpacing: '0.02em' }}>
-          Organisé par <strong style={{ color: 'var(--white)' }}>Doha Accueil</strong>
+          Organisé par <strong style={{ color: 'var(--white)' }}>{orgName}</strong>
         </p>
 
         <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
