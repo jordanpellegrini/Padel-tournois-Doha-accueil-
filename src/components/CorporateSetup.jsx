@@ -1,19 +1,11 @@
 import { useState } from 'react'
 import PlayerAutocompleteInput from './PlayerAutocompleteInput'
+import { totalDurationMinutes, checkScheduleFits, maxRoundsInWindow, timeToMinutes, minutesToTime } from '../lib/scheduleLogic'
 
 /**
- * Panneau de configuration spécifique au tournoi INTER-ENTREPRISES.
- * - Définir le nombre d'entreprises (2-6) et leurs noms
- * - Définir le nombre d'équipes par entreprise (= niveaux)
- * - Saisir les équipes de chaque entreprise, classées par niveau
- *
- * Props :
- *  tournament, isAdmin
- *  teams : équipes déjà enregistrées
- *  onUpdateTournament(patch) : maj du tournoi (num_companies, company_names, teams_per_company)
- *  onAddTeam(companyIndex, level, p1, p2)
- *  onDeleteTeam(teamId)
- *  onEditTeam(team)
+ * Config d'un tournoi INTER-ENTREPRISES.
+ * Ajoute la saisie des HORAIRES de location (début / fin)
+ * avec vérification que le planning tient dans le créneau.
  */
 export default function CorporateSetup({
   tournament,
@@ -28,7 +20,6 @@ export default function CorporateSetup({
   const teamsPerCompany = tournament.teams_per_company || 8
   const companyNames = tournament.company_names || Array.from({ length: numCompanies }, (_, i) => `Entreprise ${String.fromCharCode(65 + i)}`)
 
-  // Saisie en cours par cellule (companyIndex-level)
   const [inputs, setInputs] = useState({})
 
   const companyColor = (idx) => {
@@ -72,9 +63,78 @@ export default function CorporateSetup({
     setInput(key, 'p2', '')
   }
 
+  // ============ CALCULS DE PLANNING ============
+  const matchDuration = tournament.match_duration_minutes || 40
+  const breakDuration = tournament.break_duration_minutes || 5
+  const startTime = (tournament.start_time || '18:00').slice(0, 5)
+  const endTime = (tournament.end_time || '22:00').slice(0, 5)
+  const roundsNeeded = numCompanies - 1 // chaque équipe joue numCompanies-1 matchs = ce nb de rounds min
+  const scheduleCheck = checkScheduleFits(roundsNeeded, matchDuration, breakDuration, startTime, endTime)
+  const totalWindow = totalDurationMinutes(startTime, endTime)
+  const maxPossible = maxRoundsInWindow(totalWindow, matchDuration, breakDuration)
+
   return (
     <>
-      {/* Réglages généraux */}
+      {/* ============ HORAIRES DE LOCATION ============ */}
+      <div className="card" style={{ marginBottom: 24 }}>
+        <h2 className="h-display" style={{ fontSize: 24, marginBottom: 16, color: 'var(--sand)' }}>🕐 HORAIRES DE LOCATION</h2>
+        <p style={{ color: 'var(--gray)', fontSize: 14, marginBottom: 16 }}>
+          Créneau pendant lequel les terrains sont réservés (mêmes horaires pour tous les terrains).
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14 }}>
+          <div>
+            <label className="label">Début</label>
+            <input
+              className="input"
+              type="time"
+              value={startTime}
+              disabled={!isAdmin}
+              onChange={(e) => onUpdateTournament({ start_time: e.target.value + ':00' })}
+            />
+          </div>
+          <div>
+            <label className="label">Fin</label>
+            <input
+              className="input"
+              type="time"
+              value={endTime}
+              disabled={!isAdmin}
+              onChange={(e) => onUpdateTournament({ end_time: e.target.value + ':00' })}
+            />
+          </div>
+          <div>
+            <label className="label">Durée totale</label>
+            <div className="input" style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-deep)' }}>
+              {Math.floor(totalWindow / 60)}h{String(totalWindow % 60).padStart(2, '0')}
+            </div>
+          </div>
+        </div>
+
+        {/* Alerte débordement */}
+        <div style={{ marginTop: 16, padding: 14, borderRadius: 10, border: `2px solid ${scheduleCheck.fits ? 'var(--success)' : 'var(--danger)'}`, background: scheduleCheck.fits ? 'rgba(46,213,115,0.08)' : 'rgba(255,71,87,0.08)' }}>
+          {scheduleCheck.fits ? (
+            <div style={{ fontSize: 15, color: 'var(--success)' }}>
+              ✅ <strong>Ça rentre !</strong> Le tournoi prendra {scheduleCheck.requiredMinutes} min (marge : {scheduleCheck.availableMinutes - scheduleCheck.requiredMinutes} min).
+              <br />
+              <span style={{ color: 'var(--gray)', fontSize: 13 }}>
+                {roundsNeeded} round{roundsNeeded > 1 ? 's' : ''} nécessaire{roundsNeeded > 1 ? 's' : ''} · {maxPossible} possible{maxPossible > 1 ? 's' : ''} dans le créneau.
+              </span>
+            </div>
+          ) : (
+            <div style={{ fontSize: 15, color: 'var(--danger)' }}>
+              ⚠️ <strong>Ça déborde de {scheduleCheck.missingMinutes} min !</strong>
+              <br />
+              <span style={{ fontSize: 13 }}>
+                Besoin : {scheduleCheck.requiredMinutes} min · Disponible : {scheduleCheck.availableMinutes} min.
+                <br />
+                → Augmente le créneau, réduis la durée des matchs, ou réduis le nombre d'entreprises.
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ============ CONFIGURATION GÉNÉRALE ============ */}
       <div className="card" style={{ marginBottom: 24 }}>
         <h2 className="h-display" style={{ fontSize: 24, marginBottom: 20, color: 'var(--sand)' }}>⚙ CONFIGURATION</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16 }}>
@@ -100,18 +160,19 @@ export default function CorporateSetup({
           </div>
         </div>
         <div style={{ marginTop: 20, padding: 16, background: 'var(--bg-deep)', borderRadius: 8, border: '1px solid var(--line)' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '0.15em', color: 'var(--sand-warm)' }}>📊 SIMULATION</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, letterSpacing: '0.15em', color: 'var(--sand-warm)' }}>📊 SIMULATION</div>
           <div style={{ marginTop: 8, fontSize: 15 }}>
-            {numCompanies} entreprises × {teamsPerCompany} équipes = {numCompanies * teamsPerCompany} équipes au total.
-            Chaque équipe joue <strong style={{ color: 'var(--neon)' }}>{numCompanies - 1} match{numCompanies - 1 > 1 ? 's' : ''}</strong> (contre les équipes de même niveau).
+            {numCompanies} entreprises × {teamsPerCompany} équipes = <strong>{numCompanies * teamsPerCompany} équipes</strong> au total.
+            <br />
+            Chaque équipe joue <strong style={{ color: 'var(--neon)' }}>{roundsNeeded} match{roundsNeeded > 1 ? 's' : ''}</strong> (contre les équipes de même niveau).
           </div>
         </div>
       </div>
 
-      {/* Noms des entreprises */}
+      {/* ============ NOMS DES ENTREPRISES ============ */}
       {isAdmin && (
         <div className="card" style={{ marginBottom: 24 }}>
-          <h2 className="h-display" style={{ fontSize: 20, marginBottom: 16, color: 'var(--sand)' }}>🏢 NOMS DES ENTREPRISES</h2>
+          <h2 className="h-display" style={{ fontSize: 22, marginBottom: 16, color: 'var(--sand)' }}>🏢 NOMS DES ENTREPRISES</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
             {Array.from({ length: numCompanies }, (_, i) => (
               <div key={i}>
@@ -129,23 +190,23 @@ export default function CorporateSetup({
         </div>
       )}
 
-      {/* Grille de saisie des équipes par entreprise et niveau */}
+      {/* ============ ÉQUIPES PAR NIVEAU ============ */}
       <div className="card" style={{ marginBottom: 24 }}>
-        <h2 className="h-display" style={{ fontSize: 20, marginBottom: 8, color: 'var(--sand)' }}>
+        <h2 className="h-display" style={{ fontSize: 22, marginBottom: 8, color: 'var(--sand)' }}>
           👥 ÉQUIPES PAR NIVEAU
         </h2>
-        <p style={{ color: 'var(--gray)', fontSize: 13, marginBottom: 20 }}>
+        <p style={{ color: 'var(--gray)', fontSize: 14, marginBottom: 20 }}>
           Niveau 1 = meilleure équipe de l'entreprise · les équipes de même niveau s'affrontent.
         </p>
 
         <div style={{ display: 'grid', gap: 20 }}>
           {Array.from({ length: numCompanies }, (_, c) => (
             <div key={c} style={{ border: `1px solid ${companyColor(c)}`, borderRadius: 12, padding: 16, background: 'var(--bg-deep)' }}>
-              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 20, color: companyColor(c), marginBottom: 14, letterSpacing: '0.05em' }}>
+              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 22, color: companyColor(c), marginBottom: 14, letterSpacing: '0.05em' }}>
                 {companyNames[c] || `Entreprise ${String.fromCharCode(65 + c)}`}
               </h3>
 
-              <div style={{ display: 'grid', gap: 8 }}>
+              <div style={{ display: 'grid', gap: 10 }}>
                 {Array.from({ length: teamsPerCompany }, (_, l) => {
                   const level = l + 1
                   const existing = teamAt(c, level)
@@ -154,40 +215,30 @@ export default function CorporateSetup({
 
                   return (
                     <div key={level} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, color: 'var(--sand-warm)', minWidth: 64 }}>
+                      <span style={{ fontFamily: 'var(--font-display)', fontSize: 17, color: 'var(--sand-warm)', minWidth: 70 }}>
                         NIV. {level}
                       </span>
 
                       {existing ? (
-                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', background: 'var(--bg-mid)', borderRadius: 8, border: '1px solid var(--line)' }}>
-                          <span style={{ fontSize: 14 }}>
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '10px 14px', background: 'var(--bg-mid)', borderRadius: 8, border: '1px solid var(--line)' }}>
+                          <span style={{ fontSize: 15 }}>
                             <strong>{existing.player1_name}</strong> <span style={{ color: 'var(--gray)' }}>/ {existing.player2_name}</span>
                           </span>
                           {isAdmin && (
                             <div style={{ display: 'flex', gap: 4 }}>
-                              <button onClick={() => onEditTeam(existing)} style={{ background: 'transparent', border: 'none', color: 'var(--sand-warm)', cursor: 'pointer', fontSize: 14 }} title="Modifier">✏️</button>
-                              <button onClick={() => onDeleteTeam(existing.id)} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 18 }}>×</button>
+                              <button onClick={() => onEditTeam(existing)} style={{ background: 'transparent', border: 'none', color: 'var(--sand-warm)', cursor: 'pointer', fontSize: 15 }} title="Modifier">✏️</button>
+                              <button onClick={() => onDeleteTeam(existing.id)} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 20 }}>×</button>
                             </div>
                           )}
                         </div>
                       ) : isAdmin ? (
                         <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 6 }}>
-                          <PlayerAutocompleteInput
-                            value={inp.p1 || ''}
-                            onChange={(v) => setInput(key, 'p1', v)}
-                            placeholder="Joueur 1"
-                            style={{ }}
-                          />
-                          <PlayerAutocompleteInput
-                            value={inp.p2 || ''}
-                            onChange={(v) => setInput(key, 'p2', v)}
-                            placeholder="Joueur 2"
-                            style={{ }}
-                          />
-                          <button className="btn btn-primary" onClick={() => handleAdd(c, level)} style={{ padding: '8px 14px' }}>+</button>
+                          <PlayerAutocompleteInput value={inp.p1 || ''} onChange={(v) => setInput(key, 'p1', v)} placeholder="Joueur 1" />
+                          <PlayerAutocompleteInput value={inp.p2 || ''} onChange={(v) => setInput(key, 'p2', v)} placeholder="Joueur 2" />
+                          <button className="btn btn-primary" onClick={() => handleAdd(c, level)} style={{ padding: '10px 16px' }}>+</button>
                         </div>
                       ) : (
-                        <span style={{ flex: 1, color: 'var(--gray)', fontSize: 13, fontStyle: 'italic' }}>—</span>
+                        <span style={{ flex: 1, color: 'var(--gray)', fontSize: 14, fontStyle: 'italic' }}>—</span>
                       )}
                     </div>
                   )

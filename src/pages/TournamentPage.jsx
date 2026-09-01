@@ -25,11 +25,15 @@ import CorporateSetup from '../components/CorporateSetup'
 import FinalPodium from '../components/FinalPodium'
 import LogoBanner from '../components/LogoBanner'
 import PlayerAutocompleteInput from '../components/PlayerAutocompleteInput'
+import { attachScheduledTimes, checkScheduleFits } from '../lib/scheduleLogic'
+import { openPlanningPDF } from '../lib/pdfPlanning'
+import { useAppSettings } from '../lib/useAppSettings'
 
 export default function TournamentPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { canManageTournament, currentUser } = useAuth()
+  const { orgName } = useAppSettings()
 
   const [tournament, setTournament] = useState(null)
   const [teams, setTeams] = useState([])
@@ -149,25 +153,45 @@ export default function TournamentPage() {
       alert('Il faut au moins 2 équipes')
       return
     }
-    const numRounds = computeNumRounds(tournament.total_duration_minutes, tournament.match_duration_minutes, tournament.break_duration_minutes)
+    const matchDuration = tournament.match_duration_minutes || 20
+    const breakDuration = tournament.break_duration_minutes || 5
+    const startTime = tournament.start_time || '18:00:00'
+    const endTime = tournament.end_time || '22:00:00'
+
+    const numRounds = computeNumRounds(tournament.total_duration_minutes, matchDuration, breakDuration)
     if (numRounds === 0) {
       alert('La durée totale est insuffisante')
       return
     }
+    // Vérif horaires
+    const check = checkScheduleFits(numRounds, matchDuration, breakDuration, startTime, endTime)
+    if (!check.fits) {
+      alert(`⚠️ Le tournoi ne rentre pas dans le créneau !\n\nBesoin : ${check.requiredMinutes} min\nDisponible : ${check.availableMinutes} min\nManque : ${check.missingMinutes} min`)
+      return
+    }
+
     const schedule = generateSchedule(teams, tournament.num_courts, numRounds)
+    const scheduleWithTimes = attachScheduledTimes(schedule, matchDuration, breakDuration, startTime)
+
     await supabase.from('matches').delete().eq('tournament_id', id)
     await supabase.from('matches').insert(
-      schedule.map((m) => ({
+      scheduleWithTimes.map((m) => ({
         tournament_id: id,
         round_number: m.round_number,
         court_number: m.court_number,
         team_a_id: m.team_a_id,
         team_b_id: m.team_b_id,
-        phase: 'pool', // réutilise 'pool' comme phase neutre
+        phase: 'pool',
+        scheduled_time: m.scheduled_time,
       }))
     )
     await updateSetup({ status: 'running' })
     setCurrentRound(1)
+
+    // PDF auto
+    setTimeout(() => {
+      openPlanningPDF({ ...tournament, status: 'running' }, teams, scheduleWithTimes.map((m, i) => ({ ...m, id: `tmp-${i}` })), orgName)
+    }, 300)
   }
 
   // ============================================
@@ -199,9 +223,23 @@ export default function TournamentPage() {
 
     // Génère les matchs de poule
     const poolMatches = generatePoolMatches(updatedTeams, numPools, tournament.num_courts)
+    const matchDuration = tournament.match_duration_minutes || 20
+    const breakDuration = tournament.break_duration_minutes || 5
+    const startTime = tournament.start_time || '18:00:00'
+    const endTime = tournament.end_time || '22:00:00'
+
+    // Vérif horaires (juste pour la phase poules)
+    const roundsNeeded = Math.max(0, ...poolMatches.map((m) => m.round_number))
+    const check = checkScheduleFits(roundsNeeded, matchDuration, breakDuration, startTime, endTime)
+    if (!check.fits) {
+      alert(`⚠️ La phase de poules ne rentre pas dans le créneau !\n\nBesoin : ${check.requiredMinutes} min\nDisponible : ${check.availableMinutes} min\nManque : ${check.missingMinutes} min`)
+      return
+    }
+
+    const poolMatchesWithSchedule = attachScheduledTimes(poolMatches, matchDuration, breakDuration, startTime)
     await supabase.from('matches').delete().eq('tournament_id', id)
     await supabase.from('matches').insert(
-      poolMatches.map((m) => ({
+      poolMatchesWithSchedule.map((m) => ({
         tournament_id: id,
         phase: m.phase,
         pool_index: m.pool_index,
@@ -210,11 +248,17 @@ export default function TournamentPage() {
         team_a_id: m.team_a_id,
         team_b_id: m.team_b_id,
         bracket_label: m.bracket_label,
+        scheduled_time: m.scheduled_time,
       }))
     )
 
     await updateSetup({ status: 'running', num_pools: numPools, knockout_phase: 'pools' })
     setCurrentRound(1)
+
+    // PDF auto
+    setTimeout(() => {
+      openPlanningPDF({ ...tournament, status: 'running' }, updatedTeams, poolMatchesWithSchedule.map((m, i) => ({ ...m, id: `tmp-${i}` })), orgName)
+    }, 300)
   }
 
   // ============================================
@@ -248,11 +292,28 @@ export default function TournamentPage() {
     }
 
     const companyNames = tournament.company_names || []
+    const matchDuration = tournament.match_duration_minutes || 40
+    const breakDuration = tournament.break_duration_minutes || 5
+    const startTime = tournament.start_time || '18:00:00'
+    const endTime = tournament.end_time || '22:00:00'
+
+    // Générer d'abord pour connaître le nombre de rounds
     const matchesToCreate = generateCorporateMatches(teams, numCompanies, maxLevel, tournament.num_courts)
+    const roundsNeeded = Math.max(0, ...matchesToCreate.map((m) => m.round_number))
+
+    // Vérification que ça rentre dans le créneau horaire
+    const check = checkScheduleFits(roundsNeeded, matchDuration, breakDuration, startTime, endTime)
+    if (!check.fits) {
+      alert(`⚠️ Le tournoi ne rentre pas dans le créneau !\n\nBesoin : ${check.requiredMinutes} min\nDisponible : ${check.availableMinutes} min\nManque : ${check.missingMinutes} min\n\nAugmente le créneau ou réduis la durée des matchs.`)
+      return
+    }
+
+    // Attache les horaires calculés à chaque match
+    const matchesWithSchedule = attachScheduledTimes(matchesToCreate, matchDuration, breakDuration, startTime)
 
     await supabase.from('matches').delete().eq('tournament_id', id)
     await supabase.from('matches').insert(
-      matchesToCreate.map((m) => ({
+      matchesWithSchedule.map((m) => ({
         tournament_id: id,
         phase: m.phase,
         level: m.level,
@@ -261,10 +322,21 @@ export default function TournamentPage() {
         team_a_id: m.team_a_id,
         team_b_id: m.team_b_id,
         bracket_label: m.bracket_label,
+        scheduled_time: m.scheduled_time,
       }))
     )
     await updateSetup({ status: 'running' })
     setCurrentRound(1)
+
+    // Ouvre automatiquement le PDF du planning
+    setTimeout(() => {
+      openPlanningPDF(
+        { ...tournament, status: 'running' },
+        teams,
+        matchesWithSchedule.map((m, i) => ({ ...m, id: `tmp-${i}` })),
+        orgName
+      )
+    }, 300)
   }
 
   // ============================================
@@ -371,14 +443,15 @@ export default function TournamentPage() {
   // ============================================
   const buildPodiumEntries = () => {
     if (isCorporate) {
-      // Classement par entreprise (jeux gagnés)
-      const cs = computeCorporateStandings(teams, matches, tournament.company_names || [])
+      // Classement par entreprise (nouveau système : points positionnels)
+      const maxLevel = tournament.teams_per_company || 8
+      const cs = computeCorporateStandings(teams, matches, tournament.company_names || [], maxLevel)
       return cs.map((s, i) => ({
         rank: i + 1,
         name: s.company_name,
-        sub: `${s.wins} victoire${s.wins > 1 ? 's' : ''} · diff ${s.diff > 0 ? '+' : ''}${s.diff}`,
-        value: s.pointsFor,
-        valueLabel: 'jeux',
+        sub: `${s.totalWins} victoire${s.totalWins > 1 ? 's' : ''} · ${s.totalPointsFor} jeux · diff ${s.diff > 0 ? '+' : ''}${s.diff}`,
+        value: s.totalPoints,
+        valueLabel: 'pts',
       }))
     }
     if (isKnockout) {
@@ -419,6 +492,11 @@ export default function TournamentPage() {
             <Link to={`/rules/${id}`} style={{ background: 'transparent', border: '1px solid var(--neon)', borderRadius: 6, padding: '6px 12px', color: 'var(--neon)', fontSize: 13, fontFamily: 'var(--font-display)', letterSpacing: '0.1em', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Voir le règlement">
               📄 RÈGLEMENT
             </Link>
+            {tournament.status !== 'setup' && matches.length > 0 && (
+              <button onClick={() => openPlanningPDF(tournament, teams, matches, orgName)} style={{ background: 'transparent', border: '1px solid var(--sand-warm)', borderRadius: 6, padding: '6px 12px', color: 'var(--sand-warm)', fontSize: 13, fontFamily: 'var(--font-display)', letterSpacing: '0.1em', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Ouvrir le planning imprimable">
+                🗓️ PLANNING PDF
+              </button>
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
             <span className="badge" style={{ background: isCorporate ? 'rgba(201, 169, 110, 0.15)' : isKnockout ? 'rgba(255, 107, 74, 0.15)' : 'rgba(212, 255, 58, 0.15)', color: isCorporate ? 'var(--sand-warm)' : isKnockout ? 'var(--coral)' : 'var(--neon)' }}>
@@ -661,10 +739,20 @@ export default function TournamentPage() {
 // ============================================
 
 function SetupPanel({ tournament, onUpdate, isAdmin, numRoundsPossible, isKnockout, numTeams }) {
+  const startTime = (tournament.start_time || '18:00:00').slice(0, 5)
+  const endTime = (tournament.end_time || '22:00:00').slice(0, 5)
   return (
     <div className="card" style={{ marginBottom: 24 }}>
       <h2 className="h-display" style={{ fontSize: 24, marginBottom: 20, color: 'var(--sand)' }}>⚙ CONFIGURATION</h2>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16 }}>
+        <div>
+          <label className="label">🕐 Début</label>
+          <input className="input" type="time" value={startTime} disabled={!isAdmin} onChange={(e) => onUpdate({ start_time: e.target.value + ':00' })} />
+        </div>
+        <div>
+          <label className="label">🕐 Fin</label>
+          <input className="input" type="time" value={endTime} disabled={!isAdmin} onChange={(e) => onUpdate({ end_time: e.target.value + ':00' })} />
+        </div>
         <div>
           <label className="label">Durée totale (min)</label>
           <input className="input" type="number" min="20" value={tournament.total_duration_minutes} disabled={!isAdmin} onChange={(e) => onUpdate({ total_duration_minutes: parseInt(e.target.value) || 0 })} />

@@ -1,0 +1,57 @@
+/* ============================================
+   AJUSTEMENTS DE TAILLE DE POLICE
+   Augmente les polices dans toute l'app pour meilleure lisibilité.
+   À importer APRÈS index.css (dans main.jsx).
+   ============================================ */
+
+/* Base : augmente la taille de tous les éléments */
+html {
+  font-size: 17px; /* base par défaut = 16px, on passe à 17px */
+}
+
+/* Boutons plus grands */
+.btn {
+  font-size: 16px !important;
+  padding: 12px 20px !important;
+}
+.btn-small {
+  font-size: 14px !important;
+  padding: 8px 14px !important;
+}
+
+/* Inputs et labels plus grands */
+.input {
+  font-size: 16px !important;
+  padding: 12px 14px !important;
+}
+.label {
+  font-size: 14px !important;
+}
+
+/* Cartes avec un peu plus d'espace */
+.card {
+  padding: 20px !important;
+}
+
+/* Titres h-display plus imposants (adaptables via style inline si besoin) */
+.h-display {
+  letter-spacing: 0.03em !important;
+}
+
+/* Badges plus lisibles */
+.badge {
+  font-size: 13px !important;
+  padding: 5px 12px !important;
+}
+
+/* En-tête de l'app */
+.app-header .h-display {
+  font-size: 24px !important;
+}
+
+/* Sur mobile : on adoucit un peu pour ne pas casser la mise en page */
+@media (max-width: 480px) {
+  html { font-size: 16px; }
+  .btn { padding: 10px 16px !important; font-size: 15px !important; }
+  .card { padding: 16px !important; }
+}

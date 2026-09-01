@@ -1,0 +1,56 @@
+======================================================
+  PADEL DOHA - MISE À JOUR PLANNING + POLICE + PDF
+======================================================
+
+📋 ORDRE D'INSTALLATION (à suivre absolument)
+
+1. SQL Supabase
+   → Va dans Supabase → SQL Editor → colle supabase-schedule-evolution.sql → Run
+
+2. Nouveaux fichiers (dans /src/lib/)
+   → Copier scheduleLogic.js dans src/lib/
+   → Copier pdfPlanning.js dans src/lib/
+
+3. Fichier CSS pour polices plus grandes
+   → Copier fontSizes.css dans src/
+   → MODIFIER LE FICHIER src/main.jsx :
+     Après la ligne "import './index.css'", AJOUTER cette ligne :
+        import './fontSizes.css'
+
+4. Fichiers modifiés (remplacer les existants)
+   → src/pages/TournamentPage.jsx
+   → src/components/CorporateView.jsx
+   → src/components/CorporateSetup.jsx
+
+C'est tout ! Vercel rebuild automatique après commit.
+
+======================================================
+  NOUVEAUTÉS
+======================================================
+
+🕐 HORAIRES DE LOCATION
+- Nouveaux champs "Début" et "Fin" dans la config du tournoi
+- Vérification que le planning rentre dans le créneau
+- Alerte "il manque X min" si ça déborde
+- Applicable aux 3 types de tournoi
+
+📊 NOUVEL AFFICHAGE INTER-ENTREPRISES
+- Vue par TERRAIN au lieu de par niveau
+- Affiche uniquement le round courant + le suivant
+- 3 modes d'affichage : AUTO / SCORES / CLASSEMENTS
+- Bandeau de statut avec heure et phase en cours
+- Défilement automatique en mode AUTO selon la phase :
+  * Match en cours → CLASSEMENTS
+  * 3 min avant fin → SCORES
+  * Pause (début) → SCORES
+  * Milieu de pause → CLASSEMENTS
+
+🗓️ PDF PLANNING
+- Généré automatiquement au lancement du tournoi
+- Bouton "🗓️ PLANNING PDF" toujours accessible dans l'en-tête
+- Format A4 imprimable avec matchs par terrain et horaires
+
+📝 POLICES PLUS GRANDES
+- Augmentation globale des polices dans toute l'app
+- Boutons et inputs plus grands aussi
+- Adaptations pour mobile pour garder la mise en page
