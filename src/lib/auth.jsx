@@ -14,7 +14,10 @@ const AuthContext = createContext(null)
  * La session est conservée dans sessionStorage (le temps de l'onglet).
  */
 export function AuthProvider({ children }) {
-  // currentUser : null | { username, role: 'superadmin' | 'organizer', displayName }
+  // currentUser : null | { username, role: 'superadmin' | 'organizer' | 'user', displayName }
+  // - superadmin : toi (via config.js) — tout peut faire
+  // - organizer  : peut créer/gérer SES tournois + accès annuaire joueurs
+  // - user       : peut voir + saisir des scores (rôle limité)
   const [currentUser, setCurrentUser] = useState(null)
   const [ready, setReady] = useState(false)
 
@@ -65,7 +68,7 @@ export function AuthProvider({ children }) {
     if (org && org.password === p) {
       const user = {
         username: org.username,
-        role: 'organizer',
+        role: org.role || 'organizer',  // rôle depuis la base (par défaut : organizer)
         displayName: org.display_name || org.username,
       }
       persist(user)
@@ -103,6 +106,8 @@ export function AuthProvider({ children }) {
     if (!codes || codes.length === 0) {
       return { success: false, error: "Code d'invitation invalide" }
     }
+    // Le rôle du compte est déterminé par le code d'invitation utilisé
+    const roleFromCode = codes[0].role || 'organizer'
 
     // 2) Vérifie que l'identifiant est libre
     const { data: existing } = await supabase
@@ -114,34 +119,57 @@ export function AuthProvider({ children }) {
       return { success: false, error: 'Cet identifiant existe déjà, choisis-en un autre' }
     }
 
-    // 3) Crée le compte
+    // 3) Crée le compte avec le rôle du code
     const { error: insErr } = await supabase.from('organizers').insert({
       username: u,
       password: p,
       display_name: (displayName || '').trim() || u,
+      role: roleFromCode,
     })
     if (insErr) return { success: false, error: 'Erreur : ' + insErr.message }
 
     // 4) Connecte directement la personne
-    const user = { username: u, role: 'organizer', displayName: (displayName || '').trim() || u }
+    const user = { username: u, role: roleFromCode, displayName: (displayName || '').trim() || u }
     persist(user)
     return { success: true }
   }
 
-  // Helpers de droits
-  const isAdmin = !!currentUser // connecté = peut gérer (admin au sens large)
+  // Helpers de rôles
   const isSuperAdmin = currentUser?.role === 'superadmin'
+  const isOrganizer = currentUser?.role === 'organizer' || isSuperAdmin
+  const isUser = currentUser?.role === 'user' || isOrganizer
+  const isLoggedIn = !!currentUser
+
+  // Alias de compatibilité avec le code existant
+  // isAdmin = "connecté avec des droits de gestion" (organisateur ou super-admin)
+  const isAdmin = isOrganizer
 
   /**
-   * Peut-il gérer CE tournoi précis ?
-   * - super-admin : tous
-   * - organisateur : seulement ceux qu'il a créés (created_by === son username)
+   * Peut-il GÉRER ce tournoi (créer/modifier config, ajouter équipes, lancer) ?
+   * - super-admin : tous les tournois
+   * - organisateur : seulement ceux qu'il a créés
+   * - user : aucun (peut voir seulement)
    */
   const canManageTournament = (tournament) => {
     if (!currentUser) return false
     if (currentUser.role === 'superadmin') return true
-    if (!tournament) return false
-    return tournament.created_by === currentUser.username
+    if (currentUser.role === 'organizer') {
+      if (!tournament) return false
+      return tournament.created_by === currentUser.username
+    }
+    return false // 'user' ne peut pas gérer
+  }
+
+  /**
+   * Peut-il SAISIR LES SCORES d'un tournoi ?
+   * - super-admin & organisateur créateur : oui
+   * - user connecté : oui (accès plus large pour aider à saisir)
+   * - non connecté : non
+   */
+  const canEnterScores = (tournament) => {
+    if (!currentUser) return false
+    if (canManageTournament(tournament)) return true
+    return currentUser.role === 'user' // les users peuvent saisir sur tous les tournois
   }
 
   return (
@@ -154,7 +182,11 @@ export function AuthProvider({ children }) {
         logout,
         isAdmin,
         isSuperAdmin,
+        isOrganizer,
+        isUser,
+        isLoggedIn,
         canManageTournament,
+        canEnterScores,
       }}
     >
       {children}

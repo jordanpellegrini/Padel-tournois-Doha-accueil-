@@ -64,8 +64,9 @@ export default function Header() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {currentUser ? (
               <>
-                <span style={{ fontSize: 13, color: 'var(--gray)' }}>
-                  {isSuperAdmin ? '👑' : '👤'} {currentUser.displayName}
+                <span style={{ fontSize: 13, color: 'var(--gray)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <RoleBadge role={currentUser.role} />
+                  {currentUser.displayName}
                 </span>
                 {isSuperAdmin && (
                   <button className="btn btn-ghost btn-small" onClick={() => setShowManage(true)} title="Gérer les organisateurs et codes">
@@ -158,6 +159,25 @@ export default function Header() {
 }
 
 // ============================================
+// BADGE VISUEL D'UN ROLE
+// ============================================
+const ROLE_INFO = {
+  superadmin: { icon: '👑', label: 'Super-admin', color: 'var(--neon)',       bg: 'rgba(212,255,58,0.15)' },
+  organizer:  { icon: '👤', label: 'Organisateur', color: 'var(--sand-warm)', bg: 'rgba(201,169,110,0.15)' },
+  user:       { icon: '👀', label: 'Utilisateur',  color: 'var(--coral)',     bg: 'rgba(255,107,74,0.15)' },
+}
+
+function RoleBadge({ role, showLabel = false }) {
+  const info = ROLE_INFO[role] || ROLE_INFO.organizer
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: showLabel ? '3px 8px' : '2px 4px', background: showLabel ? info.bg : 'transparent', borderRadius: 6, fontSize: showLabel ? 12 : 14, color: info.color, fontWeight: 600 }}>
+      <span>{info.icon}</span>
+      {showLabel && <span>{info.label}</span>}
+    </span>
+  )
+}
+
+// ============================================
 // PANNEAU DE GESTION (super-admin) : organisateurs + codes
 // ============================================
 function ManagePanel({ onClose }) {
@@ -202,31 +222,67 @@ function OrganizersTab() {
   }
 
   const deleteOrganizer = async (id, username) => {
-    if (!confirm(`Supprimer l'organisateur "${username}" ? Il ne pourra plus se connecter.`)) return
+    if (!confirm(`Supprimer le compte "${username}" ? La personne ne pourra plus se connecter.`)) return
     await supabase.from('organizers').delete().eq('id', id)
+    load()
+  }
+
+  const changeRole = async (id, newRole) => {
+    await supabase.from('organizers').update({ role: newRole }).eq('id', id)
     load()
   }
 
   return (
     <div>
       <p style={{ color: 'var(--gray)', fontSize: 13, marginBottom: 16 }}>
-        Les organisateurs créent leur compte eux-mêmes avec un code d'invitation. Tu peux les retirer ici.
+        Les personnes créent leur compte avec un code d'invitation. Le rôle vient du code utilisé, tu peux le changer ici.
       </p>
       {loading ? (
         <div style={{ color: 'var(--gray)', padding: 20, textAlign: 'center' }}>Chargement...</div>
       ) : organizers.length === 0 ? (
-        <div style={{ color: 'var(--gray)', padding: 20, textAlign: 'center', fontSize: 14 }}>Aucun organisateur inscrit.</div>
+        <div style={{ color: 'var(--gray)', padding: 20, textAlign: 'center', fontSize: 14 }}>Aucun compte inscrit.</div>
       ) : (
-        <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
-          {organizers.map((o) => (
-            <div key={o.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-deep)', border: '1px solid var(--line)', borderRadius: 8 }}>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontWeight: 600 }}>👤 {o.display_name || o.username}</div>
-                <div style={{ color: 'var(--gray)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>{o.username}</div>
+        <div style={{ display: 'grid', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
+          {organizers.map((o) => {
+            const currentRole = o.role || 'organizer'
+            return (
+              <div key={o.id} style={{ padding: '12px 14px', background: 'var(--bg-deep)', border: '1px solid var(--line)', borderRadius: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <RoleBadge role={currentRole} />
+                      {o.display_name || o.username}
+                    </div>
+                    <div style={{ color: 'var(--gray)', fontSize: 12, fontFamily: 'var(--font-mono)', marginTop: 2 }}>{o.username}</div>
+                  </div>
+                  <button onClick={() => deleteOrganizer(o.id, o.username)} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', fontSize: 20, cursor: 'pointer', padding: '4px 8px' }} title="Supprimer">🗑</button>
+                </div>
+                {/* Sélecteur de rôle */}
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {['organizer', 'user'].map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => changeRole(o.id, r)}
+                      disabled={currentRole === r}
+                      style={{
+                        flex: 1,
+                        padding: '6px 10px',
+                        fontSize: 12,
+                        borderRadius: 6,
+                        border: currentRole === r ? '2px solid ' + ROLE_INFO[r].color : '1px solid var(--line)',
+                        background: currentRole === r ? ROLE_INFO[r].bg : 'transparent',
+                        color: currentRole === r ? ROLE_INFO[r].color : 'var(--gray)',
+                        cursor: currentRole === r ? 'default' : 'pointer',
+                        fontWeight: currentRole === r ? 700 : 400,
+                      }}
+                    >
+                      {ROLE_INFO[r].icon} {ROLE_INFO[r].label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <button onClick={() => deleteOrganizer(o.id, o.username)} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', fontSize: 20, cursor: 'pointer', padding: '4px 8px' }} title="Supprimer">🗑</button>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
@@ -238,6 +294,7 @@ function CodesTab() {
   const [loading, setLoading] = useState(true)
   const [newCode, setNewCode] = useState('')
   const [newLabel, setNewLabel] = useState('')
+  const [newRole, setNewRole] = useState('organizer') // rôle attribué par le code
   const [error, setError] = useState('')
 
   useEffect(() => { load() }, [])
@@ -254,9 +311,18 @@ function CodesTab() {
     if (codes.some((x) => x.code.toLowerCase() === c.toLowerCase())) {
       setError('Ce code existe déjà'); return
     }
-    const { error: insErr } = await supabase.from('invite_codes').insert({ code: c, label: newLabel.trim() || null })
+    const { error: insErr } = await supabase.from('invite_codes').insert({
+      code: c,
+      label: newLabel.trim() || null,
+      role: newRole,
+    })
     if (insErr) { setError('Erreur : ' + insErr.message); return }
-    setNewCode(''); setNewLabel(''); load()
+    setNewCode(''); setNewLabel(''); setNewRole('organizer'); load()
+  }
+
+  const changeCodeRole = async (id, role) => {
+    await supabase.from('invite_codes').update({ role }).eq('id', id)
+    load()
   }
 
   const deleteCode = async (id, code) => {
@@ -268,7 +334,7 @@ function CodesTab() {
   return (
     <div>
       <p style={{ color: 'var(--gray)', fontSize: 13, marginBottom: 16 }}>
-        Communique un de ces codes aux personnes que tu veux autoriser à créer un compte organisateur.
+        Chaque code crée un compte avec le rôle choisi. Communique le code aux personnes concernées.
       </p>
 
       <div style={{ background: 'var(--bg-deep)', border: '1px solid var(--line)', borderRadius: 10, padding: 16, marginBottom: 20 }}>
@@ -282,6 +348,31 @@ function CodesTab() {
             <input className="input" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="ex: Tournoi de mai" />
           </div>
         </div>
+        {/* Sélecteur de rôle pour le nouveau code */}
+        <div style={{ marginBottom: 12 }}>
+          <label className="label">Rôle attribué par ce code</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {['organizer', 'user'].map((r) => (
+              <button
+                key={r}
+                onClick={() => setNewRole(r)}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: 6,
+                  border: newRole === r ? '2px solid ' + ROLE_INFO[r].color : '1px solid var(--line)',
+                  background: newRole === r ? ROLE_INFO[r].bg : 'transparent',
+                  color: newRole === r ? ROLE_INFO[r].color : 'var(--gray)',
+                  cursor: 'pointer',
+                  fontWeight: newRole === r ? 700 : 400,
+                  fontSize: 13,
+                }}
+              >
+                {ROLE_INFO[r].icon} {ROLE_INFO[r].label}
+              </button>
+            ))}
+          </div>
+        </div>
         {error && <div style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 10 }}>⚠️ {error}</div>}
         <button className="btn btn-primary" onClick={addCode} style={{ width: '100%' }}>➕ Créer le code</button>
       </div>
@@ -291,16 +382,47 @@ function CodesTab() {
       ) : codes.length === 0 ? (
         <div style={{ color: 'var(--gray)', padding: 20, textAlign: 'center', fontSize: 14 }}>Aucun code. Crée-en un pour autoriser les inscriptions.</div>
       ) : (
-        <div style={{ display: 'grid', gap: 8, maxHeight: 200, overflowY: 'auto' }}>
-          {codes.map((c) => (
-            <div key={c.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-deep)', border: '1px solid var(--line)', borderRadius: 8 }}>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--neon)', fontSize: 16 }}>{c.code}</div>
-                {c.label && <div style={{ color: 'var(--gray)', fontSize: 12 }}>{c.label}</div>}
+        <div style={{ display: 'grid', gap: 8, maxHeight: 240, overflowY: 'auto' }}>
+          {codes.map((c) => {
+            const codeRole = c.role || 'organizer'
+            return (
+              <div key={c.id} style={{ padding: '12px 14px', background: 'var(--bg-deep)', border: '1px solid var(--line)', borderRadius: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--neon)', fontSize: 16 }}>{c.code}</span>
+                      <RoleBadge role={codeRole} showLabel />
+                    </div>
+                    {c.label && <div style={{ color: 'var(--gray)', fontSize: 12, marginTop: 2 }}>{c.label}</div>}
+                  </div>
+                  <button onClick={() => deleteCode(c.id, c.code)} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', fontSize: 20, cursor: 'pointer', padding: '4px 8px' }} title="Supprimer">🗑</button>
+                </div>
+                {/* Boutons pour changer le rôle du code */}
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {['organizer', 'user'].map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => changeCodeRole(c.id, r)}
+                      disabled={codeRole === r}
+                      style={{
+                        flex: 1,
+                        padding: '5px 8px',
+                        fontSize: 11,
+                        borderRadius: 6,
+                        border: codeRole === r ? '2px solid ' + ROLE_INFO[r].color : '1px solid var(--line)',
+                        background: codeRole === r ? ROLE_INFO[r].bg : 'transparent',
+                        color: codeRole === r ? ROLE_INFO[r].color : 'var(--gray)',
+                        cursor: codeRole === r ? 'default' : 'pointer',
+                        fontWeight: codeRole === r ? 700 : 400,
+                      }}
+                    >
+                      {ROLE_INFO[r].icon} {ROLE_INFO[r].label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <button onClick={() => deleteCode(c.id, c.code)} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', fontSize: 20, cursor: 'pointer', padding: '4px 8px' }} title="Supprimer">🗑</button>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

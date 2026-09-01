@@ -32,7 +32,7 @@ import { useAppSettings } from '../lib/useAppSettings'
 export default function TournamentPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { canManageTournament, currentUser } = useAuth()
+  const { canManageTournament, canEnterScores, currentUser } = useAuth()
   const { orgName } = useAppSettings()
 
   const [tournament, setTournament] = useState(null)
@@ -53,6 +53,8 @@ export default function TournamentPage() {
   const isCorporate = tournament?.tournament_type === 'corporate'
   // Droit de GÉRER ce tournoi : super-admin (tous) ou organisateur créateur (les siens)
   const isAdmin = canManageTournament(tournament)
+  // Droit de SAISIR les scores : admin + users (tous les connectés autorisés)
+  const canScore = canEnterScores(tournament)
 
   useEffect(() => {
     loadAll()
@@ -660,7 +662,7 @@ export default function TournamentPage() {
                 })}
               </div>
 
-              <CourtsLayout matches={matches.filter((m) => m.round_number === currentRound)} teams={teams} isAdmin={isAdmin} updateScore={updateScore} toggleMatchFinished={toggleMatchFinished} />
+              <CourtsLayout matches={matches.filter((m) => m.round_number === currentRound)} teams={teams} isAdmin={isAdmin} canScore={canScore} updateScore={updateScore} toggleMatchFinished={toggleMatchFinished} />
 
               <Standings standings={standings} isAdmin={isAdmin} onEditTeam={setEditingTeam} />
             </>
