@@ -388,6 +388,15 @@ export default function TournamentPage() {
   }
 
   const toggleMatchFinished = async (match) => {
+    // Warning match nul : uniquement si on VALIDE (pas si on rouvre)
+    if (!match.is_finished) {
+      const sa = parseInt(match.score_a, 10) || 0
+      const sb = parseInt(match.score_b, 10) || 0
+      if (sa === sb) {
+        const ok = confirm(`⚠️ Match nul détecté (${sa} - ${sb}) !\n\nUn match ne devrait pas se terminer sur une égalité de jeux au padel. Vérifie le score.\n\nValider quand même ?`)
+        if (!ok) return
+      }
+    }
     await supabase.from('matches').update({ is_finished: !match.is_finished }).eq('id', match.id)
   }
 

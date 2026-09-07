@@ -15,11 +15,11 @@ import {
  * Vue d'un tournoi INTER-ENTREPRISES
  *
  * Nouveautés :
- *  - Matchs groupés par TERRAIN (pas par niveau)
- *  - Affiche uniquement le ROUND EN COURS + le SUIVANT (pas tous)
+ *  - Pause en DÉBUT de créneau (warm-up puis match)
+ *  - Sélecteur de rounds pour naviguer et saisir les scores de n'importe quel round
+ *  - Matchs groupés par TERRAIN
  *  - Défilement cyclique automatique classements ↔ saisie scores
- *      basé sur l'heure courante et les horaires du planning
- *  - Boutons manuels pour forcer l'affichage
+ *  - Warning si match nul à la validation
  */
 export default function CorporateView({
   tournament,
@@ -40,12 +40,10 @@ export default function CorporateView({
   const breakDuration = tournament.break_duration_minutes || 5
   const startTime = tournament.start_time || '18:00'
 
-  // Nombre de rounds total (calculé à partir des matchs existants)
   const totalRounds = Math.max(0, ...matches.filter((m) => m.phase === 'corporate').map((m) => m.round_number || 0))
   const roundStartTimes = computeRoundStartTimes(totalRounds, matchDuration, breakDuration, startTime)
 
   // ============ DÉFILEMENT CYCLIQUE ============
-  // 'auto' : suit le timer réel · 'scores' : force saisie · 'ranking' : force classements
   const [displayMode, setDisplayMode] = useState('auto')
   const [phaseInfo, setPhaseInfo] = useState({ phase: 'match', currentRound: 1 })
 
@@ -55,24 +53,39 @@ export default function CorporateView({
       setPhaseInfo(info)
     }
     tick()
-    const id = setInterval(tick, 30 * 1000) // recheck toutes les 30s
+    const id = setInterval(tick, 30 * 1000)
     return () => clearInterval(id)
-  }, [roundStartTimes.join('|'), matchDuration, breakDuration])
+  }, [roundStartTimes.map(r => r.warmup).join('|'), matchDuration, breakDuration])
 
-  // Décide de l'affichage à montrer selon le mode et la phase
   const shouldShowScores =
     displayMode === 'scores' ? true :
     displayMode === 'ranking' ? false :
-    // Mode auto : saisie durant "match-ending" et "break" (début de pause)
     (phaseInfo.phase === 'match-ending' || phaseInfo.phase === 'break')
 
-  // ============ TERRAINS & MATCHS DU ROUND EN COURS + SUIVANT ============
-  const currentRound = phaseInfo.currentRound || 1
-  const numCourts = tournament.num_courts || 4
+  // ============ SÉLECTEUR DE ROUND (pour saisir scores de n'importe quel round) ============
+  // Round affiché par défaut : le round courant (selon l'heure), ou 1 avant/après
+  const autoRound = phaseInfo.phase === 'before' ? 1 : (phaseInfo.currentRound || 1)
+  const [selectedRound, setSelectedRound] = useState(autoRound)
+  const [manualRoundSelection, setManualRoundSelection] = useState(false)
 
+  // Si l'utilisateur ne fait pas de sélection manuelle, on suit le round courant
+  useEffect(() => {
+    if (!manualRoundSelection) setSelectedRound(autoRound)
+  }, [autoRound, manualRoundSelection])
+
+  const pickRound = (r) => {
+    setSelectedRound(r)
+    setManualRoundSelection(true)
+  }
+  const resetToAutoRound = () => {
+    setManualRoundSelection(false)
+    setSelectedRound(autoRound)
+  }
+
+  // ============ TERRAINS & MATCHS DU ROUND SÉLECTIONNÉ ============
+  const numCourts = tournament.num_courts || 4
   const teamById = (id) => teams.find((t) => t.id === id)
 
-  // Récupère les matchs d'un round donné, indexés par n° de terrain
   const matchesByCourtForRound = (roundNum) => {
     const roundMatches = matches.filter((m) => m.phase === 'corporate' && m.round_number === roundNum)
     const byCourt = {}
@@ -81,40 +94,46 @@ export default function CorporateView({
     return byCourt
   }
 
-  const roundToShow = phaseInfo.phase === 'before' ? 1 : currentRound
-  const currentByCourt = matchesByCourtForRound(roundToShow)
-  const nextByCourt = matchesByCourtForRound(roundToShow + 1)
-  const hasNext = roundToShow < totalRounds
+  const currentByCourt = matchesByCourtForRound(selectedRound)
+  const nextByCourt = matchesByCourtForRound(selectedRound + 1)
+  const hasNext = selectedRound < totalRounds
 
   const companyColor = (idx) => {
     const colors = ['var(--neon)', 'var(--coral)', 'var(--sand-warm)', '#5b9bd5', '#b07cc6', '#5fd0a0']
     return colors[idx % colors.length]
   }
 
-  // Libellés des rounds courant/suivant
+  // Libellé "warm-up · match → fin" pour un round
   const roundLabel = (r) => {
     const idx = r - 1
     if (idx < 0 || idx >= roundStartTimes.length) return `Round ${r}`
-    const start = roundStartTimes[idx]
-    const end = minutesToTime(timeToMinutes(start) + matchDuration)
-    return `${start} → ${end}`
+    const t = roundStartTimes[idx]
+    return `${t.warmup} warm-up · ${t.match} → ${t.end}`
   }
 
-  // ============ BANDEAU DE STATUT (phase courante) ============
+  // Compte les matchs validés par round (pour indiquer où il reste des scores à saisir)
+  const roundStatus = (r) => {
+    const rMatches = matches.filter((m) => m.phase === 'corporate' && m.round_number === r)
+    const total = rMatches.length
+    const done = rMatches.filter((m) => m.is_finished).length
+    return { total, done, complete: total > 0 && done === total }
+  }
+
+  // ============ BANDEAU DE STATUT ============
   const phaseLabels = {
-    'before':       { txt: '⏰ Avant le tournoi',           color: 'var(--gray)' },
+    'before':       { txt: '⏰ Avant le tournoi',            color: 'var(--gray)' },
     'match':        { txt: '🎾 Match en cours',              color: 'var(--success)' },
-    'match-ending': { txt: '⚠️ Fin de match imminente',     color: 'var(--coral)' },
-    'break':        { txt: '☕ Pause · saisie des scores',   color: 'var(--sand-warm)' },
-    'break-mid':    { txt: '📊 Milieu de pause',             color: 'var(--sand-warm)' },
-    'after':        { txt: '🏁 Tournoi terminé',            color: 'var(--gray)' },
+    'match-ending': { txt: '⚠️ Fin de match imminente',      color: 'var(--coral)' },
+    'break':        { txt: '☕ Warm-up · saisie possible',   color: 'var(--sand-warm)' },
+    'break-mid':    { txt: '📊 Fin de warm-up',              color: 'var(--sand-warm)' },
+    'after':        { txt: '🏁 Tournoi terminé',             color: 'var(--gray)' },
   }
   const currentPhaseLabel = phaseLabels[phaseInfo.phase] || phaseLabels.match
 
   return (
     <div style={{ fontSize: 16 }}>
       {/* ============ BANDEAU DE STATUT + BASCULE ============ */}
-      <div className="card" style={{ marginBottom: 20, padding: 16 }}>
+      <div className="card" style={{ marginBottom: 16, padding: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <div>
             <div style={{ fontSize: 18, fontWeight: 700, color: currentPhaseLabel.color }}>
@@ -122,19 +141,18 @@ export default function CorporateView({
             </div>
             <div style={{ fontSize: 14, color: 'var(--gray)', marginTop: 4 }}>
               {phaseInfo.phase === 'before' && phaseInfo.minutesUntilNext !== undefined && (
-                <>Début dans {phaseInfo.minutesUntilNext} min · {roundStartTimes[0]}</>
+                <>Début dans {phaseInfo.minutesUntilNext} min · {roundStartTimes[0]?.warmup}</>
               )}
               {(phaseInfo.phase === 'match' || phaseInfo.phase === 'match-ending') && (
-                <>Round {currentRound}/{totalRounds} · {roundLabel(currentRound)} · {phaseInfo.minutesUntilNext} min restantes</>
+                <>Round {phaseInfo.currentRound}/{totalRounds} · {roundLabel(phaseInfo.currentRound)} · {phaseInfo.minutesUntilNext} min restantes</>
               )}
               {(phaseInfo.phase === 'break' || phaseInfo.phase === 'break-mid') && (
-                <>Pause · Round {currentRound + 1} dans {phaseInfo.minutesUntilNext} min</>
+                <>Warm-up du round {phaseInfo.currentRound} · Match dans {phaseInfo.minutesUntilNext} min</>
               )}
               {phaseInfo.phase === 'after' && <>Tous les rounds sont joués</>}
             </div>
           </div>
 
-          {/* Boutons pour forcer l'affichage */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             <button
               onClick={() => setDisplayMode('auto')}
@@ -159,12 +177,63 @@ export default function CorporateView({
         </div>
       </div>
 
+      {/* ============ SÉLECTEUR DE ROUND (en mode scores uniquement) ============ */}
+      {shouldShowScores && totalRounds > 1 && (
+        <div className="card" style={{ marginBottom: 16, padding: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: 'var(--gray)', fontWeight: 600 }}>Round affiché :</span>
+            {manualRoundSelection && (
+              <button
+                onClick={resetToAutoRound}
+                style={{ fontSize: 11, padding: '3px 8px', background: 'transparent', border: '1px solid var(--line)', borderRadius: 4, color: 'var(--sand-warm)', cursor: 'pointer' }}
+                title="Revenir au round courant selon l'heure"
+              >
+                🔄 Auto
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {Array.from({ length: totalRounds }, (_, i) => {
+              const r = i + 1
+              const isSelected = r === selectedRound
+              const isAutoRound = r === autoRound
+              const status = roundStatus(r)
+              const t = roundStartTimes[i]
+              return (
+                <button
+                  key={r}
+                  onClick={() => pickRound(r)}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: 6,
+                    border: isSelected ? '2px solid var(--neon)' : '1px solid var(--line)',
+                    background: isSelected ? 'rgba(212,255,58,0.15)' : 'var(--bg-deep)',
+                    color: isSelected ? 'var(--neon)' : 'var(--white)',
+                    cursor: 'pointer',
+                    minWidth: 90,
+                    fontSize: 12,
+                  }}
+                  title={t ? `Warm-up ${t.warmup} · Match ${t.match} → ${t.end}` : ''}
+                >
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>
+                    R{r} {isAutoRound && <span style={{ color: 'var(--sand-warm)', fontSize: 10 }}>●</span>}
+                  </div>
+                  {t && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, marginTop: 2 }}>{t.match}</div>}
+                  <div style={{ fontSize: 10, marginTop: 3, color: status.complete ? 'var(--success)' : status.done > 0 ? 'var(--sand-warm)' : 'var(--gray)' }}>
+                    {status.complete ? '✓ tous validés' : `${status.done}/${status.total}`}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ============ AFFICHAGE PRINCIPAL ============ */}
       {shouldShowScores ? (
-        // === MODE SAISIE DES SCORES : matchs par terrain, round courant + suivant ===
         <div>
           <RoundByCourt
-            title={`ROUND ${roundToShow} · ${roundLabel(roundToShow)}`}
+            title={`ROUND ${selectedRound} · ${roundLabel(selectedRound)}`}
             highlight
             byCourt={currentByCourt}
             teamById={teamById}
@@ -177,12 +246,12 @@ export default function CorporateView({
           {hasNext && (
             <div style={{ marginTop: 20 }}>
               <RoundByCourt
-                title={`ROUND SUIVANT · ${roundLabel(roundToShow + 1)}`}
+                title={`ROUND SUIVANT · ${roundLabel(selectedRound + 1)}`}
                 byCourt={nextByCourt}
                 teamById={teamById}
                 companyNames={companyNames}
                 companyColor={companyColor}
-                isAdmin={false} // pas de saisie sur les futurs matchs
+                isAdmin={false}
                 updateScore={updateScore}
                 toggleMatchFinished={toggleMatchFinished}
                 dimmed

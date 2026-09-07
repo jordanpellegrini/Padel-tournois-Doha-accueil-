@@ -73,19 +73,24 @@ export function checkScheduleFits(numRoundsNeeded, matchDuration, breakDuration,
 }
 
 /**
- * Calcule l'heure de début (HH:MM) de chaque round.
- * @param {number} numRounds
- * @param {number} matchDuration
- * @param {number} breakDuration
- * @param {string} startTime  "HH:MM" ou "HH:MM:SS"
- * @returns {Array<string>} ["18:00", "18:45", "19:30", ...]
+ * Calcule les horaires de chaque round avec la nouvelle logique
+ * (pause en début = warm-up, puis match).
+ * @returns {Array<{warmup: string, match: string, end: string}>}
+ *   ex : [{ warmup: "18:00", match: "18:05", end: "18:45" }, ...]
  */
 export function computeRoundStartTimes(numRounds, matchDuration, breakDuration, startTime) {
   const startMin = timeToMinutes(startTime)
   const cycle = matchDuration + breakDuration
   const times = []
   for (let r = 0; r < numRounds; r++) {
-    times.push(minutesToTime(startMin + r * cycle))
+    const warmupStart = startMin + r * cycle
+    const matchStart = warmupStart + breakDuration
+    const matchEnd = matchStart + matchDuration
+    times.push({
+      warmup: minutesToTime(warmupStart),
+      match: minutesToTime(matchStart),
+      end: minutesToTime(matchEnd),
+    })
   }
   return times
 }
@@ -93,64 +98,74 @@ export function computeRoundStartTimes(numRounds, matchDuration, breakDuration, 
 /**
  * À partir des matchs déjà générés (avec round_number), leur assigne
  * une scheduled_time selon start_time / match_duration / break_duration.
- * @returns {Array} matchs enrichis avec scheduled_time
+ *
+ * NOUVELLE LOGIQUE : la pause est au DÉBUT de chaque créneau (warm-up).
+ * Un créneau = [ warm-up (break_duration) ] + [ match (match_duration) ]
+ *   Créneau 1 :  start ─── start+break : warm-up  ─── start+break+match : fin match
+ *   Créneau 2 :  suite immédiate
+ *
+ * On stocke l'heure de DÉBUT DU MATCH (pas du warm-up), c'est ce qui compte
+ * pour l'utilisateur : "à quelle heure commence à jouer".
+ *
+ * @returns {Array} matchs enrichis avec scheduled_time (heure de début du match)
  */
 export function attachScheduledTimes(matches, matchDuration, breakDuration, startTime) {
   const startMin = timeToMinutes(startTime)
   const cycle = matchDuration + breakDuration
   return matches.map((m) => {
     const r = m.round_number || 1
-    const mins = startMin + (r - 1) * cycle
-    return { ...m, scheduled_time: minutesToTime(mins) + ':00' } // format TIME "HH:MM:SS"
+    // Le warm-up commence à startMin + (r-1)*cycle
+    // Le match commence après le warm-up : + breakDuration
+    const matchStartMin = startMin + (r - 1) * cycle + breakDuration
+    return { ...m, scheduled_time: minutesToTime(matchStartMin) + ':00' }
   })
 }
 
 /**
  * Vu l'heure courante, détermine dans quelle phase on est pour un round donné :
+ *   - 'before'        : avant le début du tournoi
+ *   - 'break'         : warm-up (pause en début de créneau, avant match)
+ *   - 'break-mid'     : milieu du warm-up (plus près du match)
  *   - 'match'         : match en cours
  *   - 'match-ending'  : moins de N minutes avant fin de match
- *   - 'break'         : pause entre rounds
- *   - 'break-mid'     : milieu de la pause (moitié écoulée)
- *   - 'before'        : avant le début du tournoi
  *   - 'after'         : après la fin du tournoi
  *
- * @param {number} nowMinutes    minutes depuis minuit (Date.now() converti)
- * @param {Array<string>} roundStartTimes  ex: ["18:00","18:45",...]
+ * @param {number} nowMinutes    minutes depuis minuit
+ * @param {Array<object>} roundStartTimes  [{warmup, match, end}, ...] depuis computeRoundStartTimes
  * @param {number} matchDuration
  * @param {number} breakDuration
- * @param {number} scoreWarnMinBeforeEnd  ex: 3 (min avant fin de match on bascule sur saisie)
+ * @param {number} scoreWarnMinBeforeEnd  ex: 3
  * @returns {object} { phase, currentRound, minutesInPhase, minutesUntilNext }
  */
 export function getCurrentPhase(nowMinutes, roundStartTimes, matchDuration, breakDuration, scoreWarnMinBeforeEnd = 3) {
   if (roundStartTimes.length === 0) return { phase: 'after', currentRound: 0 }
-  const firstStart = timeToMinutes(roundStartTimes[0])
-  const lastStart = timeToMinutes(roundStartTimes[roundStartTimes.length - 1])
-  const lastEnd = lastStart + matchDuration
-  if (nowMinutes < firstStart) return { phase: 'before', currentRound: 0, minutesUntilNext: firstStart - nowMinutes }
+  const firstWarmup = timeToMinutes(roundStartTimes[0].warmup)
+  const lastEnd = timeToMinutes(roundStartTimes[roundStartTimes.length - 1].end)
+  if (nowMinutes < firstWarmup) return { phase: 'before', currentRound: 0, minutesUntilNext: firstWarmup - nowMinutes }
   if (nowMinutes >= lastEnd) return { phase: 'after', currentRound: roundStartTimes.length }
 
   // Trouve le round en cours
   for (let i = 0; i < roundStartTimes.length; i++) {
-    const rStart = timeToMinutes(roundStartTimes[i])
-    const rEnd = rStart + matchDuration
-    const nextStart = i + 1 < roundStartTimes.length ? timeToMinutes(roundStartTimes[i + 1]) : rEnd + breakDuration
+    const rWarmupStart = timeToMinutes(roundStartTimes[i].warmup)
+    const rMatchStart = timeToMinutes(roundStartTimes[i].match)
+    const rEnd = timeToMinutes(roundStartTimes[i].end)
 
-    if (nowMinutes >= rStart && nowMinutes < rEnd) {
-      // Match en cours
+    // Warm-up (pause de début)
+    if (nowMinutes >= rWarmupStart && nowMinutes < rMatchStart) {
+      const pauseLen = rMatchStart - rWarmupStart
+      const elapsed = nowMinutes - rWarmupStart
+      if (elapsed >= pauseLen / 2) {
+        return { phase: 'break-mid', currentRound: i + 1, minutesInPhase: elapsed, minutesUntilNext: rMatchStart - nowMinutes }
+      }
+      return { phase: 'break', currentRound: i + 1, minutesInPhase: elapsed, minutesUntilNext: rMatchStart - nowMinutes }
+    }
+    // Match en cours
+    if (nowMinutes >= rMatchStart && nowMinutes < rEnd) {
       const minsRemaining = rEnd - nowMinutes
       if (minsRemaining <= scoreWarnMinBeforeEnd) {
-        return { phase: 'match-ending', currentRound: i + 1, minutesInPhase: nowMinutes - rStart, minutesUntilNext: minsRemaining }
+        return { phase: 'match-ending', currentRound: i + 1, minutesInPhase: nowMinutes - rMatchStart, minutesUntilNext: minsRemaining }
       }
-      return { phase: 'match', currentRound: i + 1, minutesInPhase: nowMinutes - rStart, minutesUntilNext: minsRemaining }
-    }
-    if (nowMinutes >= rEnd && nowMinutes < nextStart) {
-      // Pause
-      const pauseLen = nextStart - rEnd
-      const elapsed = nowMinutes - rEnd
-      if (elapsed >= pauseLen / 2) {
-        return { phase: 'break-mid', currentRound: i + 1, minutesInPhase: elapsed, minutesUntilNext: nextStart - nowMinutes }
-      }
-      return { phase: 'break', currentRound: i + 1, minutesInPhase: elapsed, minutesUntilNext: nextStart - nowMinutes }
+      return { phase: 'match', currentRound: i + 1, minutesInPhase: nowMinutes - rMatchStart, minutesUntilNext: minsRemaining }
     }
   }
   return { phase: 'after', currentRound: roundStartTimes.length }

@@ -4,7 +4,7 @@
 // Ouvre une nouvelle fenetre avec un HTML formaté imprimable/téléchargeable en PDF.
 // Aucune dépendance externe : on utilise juste window.print() du navigateur.
 
-import { computeRoundStartTimes, timeToMinutes, minutesToTime } from './scheduleLogic'
+import { computeRoundStartTimes } from './scheduleLogic'
 
 /**
  * Génère et ouvre le planning imprimable.
@@ -28,16 +28,16 @@ export function openPlanningPDF(tournament, teams, matches, orgName = 'Doha Accu
   // Construit les lignes du planning : une par round
   const rows = []
   for (let r = 1; r <= totalRounds; r++) {
-    const startMin = timeToMinutes(roundStartTimes[r - 1] || startTime)
-    const endMin = startMin + matchDuration
+    const t = roundStartTimes[r - 1]
     const roundMatches = matches.filter((m) => m.round_number === r)
     const byCourt = {}
     for (let c = 1; c <= numCourts; c++) byCourt[c] = null
     roundMatches.forEach((m) => { byCourt[m.court_number] = m })
     rows.push({
       round: r,
-      startLabel: roundStartTimes[r - 1] || '--:--',
-      endLabel: minutesToTime(endMin),
+      warmupLabel: t?.warmup || '--:--',
+      startLabel: t?.match || '--:--',
+      endLabel: t?.end || '--:--',
       courts: byCourt,
     })
   }
@@ -94,6 +94,7 @@ export function openPlanningPDF(tournament, teams, matches, orgName = 'Doha Accu
   .round-col { width: 60px; }
   td.round-cell { text-align: center; font-weight: 700; font-size: 15px; background: #f6f8fa; }
   td.time-cell { text-align: center; font-family: 'Menlo', monospace; background: #f6f8fa; }
+  td.time-cell .warmup { color: #a67c3d; font-size: 10px; font-weight: 600; }
   td.time-cell .start { font-weight: 700; font-size: 14px; }
   td.time-cell .end { color: #6b7c8f; font-size: 11px; }
   .teamline { font-size: 11px; line-height: 1.3; }
@@ -151,6 +152,7 @@ export function openPlanningPDF(tournament, teams, matches, orgName = 'Doha Accu
         <tr>
           <td class="round-cell">${row.round}</td>
           <td class="time-cell">
+            <div class="warmup">☕ ${row.warmupLabel}</div>
             <div class="start">${row.startLabel}</div>
             <div class="end">→ ${row.endLabel}</div>
           </td>
