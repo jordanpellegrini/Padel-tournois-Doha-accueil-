@@ -76,10 +76,14 @@ export default function CorporateView({
   const pickRound = (r) => {
     setSelectedRound(r)
     setManualRoundSelection(true)
+    // Cliquer sur un round bascule automatiquement en mode saisie
+    // (sinon impossible de renseigner les scores hors des créneaux de match)
+    setDisplayMode('scores')
   }
   const resetToAutoRound = () => {
     setManualRoundSelection(false)
     setSelectedRound(autoRound)
+    setDisplayMode('auto')
   }
 
   // ============ TERRAINS & MATCHS DU ROUND SÉLECTIONNÉ ============
@@ -177,25 +181,30 @@ export default function CorporateView({
         </div>
       </div>
 
-      {/* ============ SÉLECTEUR DE ROUND (en mode scores uniquement) ============ */}
-      {shouldShowScores && totalRounds > 1 && (
-        <div className="card" style={{ marginBottom: 16, padding: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13, color: 'var(--gray)', fontWeight: 600 }}>Round affiché :</span>
+      {/* ============ SÉLECTEUR DE ROUND (TOUJOURS VISIBLE) ============ */}
+      {totalRounds > 1 && (isAdmin || displayMode === 'scores') && (
+        <div className="card" style={{ marginBottom: 16, padding: 14, border: '2px solid var(--sand-warm)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 15, color: 'var(--sand-warm)', fontWeight: 700, fontFamily: 'var(--font-display)', letterSpacing: '0.05em' }}>
+              📝 SAISIR / MODIFIER LES SCORES
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--gray)' }}>
+              — clique sur n'importe quel round
+            </span>
             {manualRoundSelection && (
               <button
                 onClick={resetToAutoRound}
-                style={{ fontSize: 11, padding: '3px 8px', background: 'transparent', border: '1px solid var(--line)', borderRadius: 4, color: 'var(--sand-warm)', cursor: 'pointer' }}
+                style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 10px', background: 'transparent', border: '1px solid var(--line)', borderRadius: 4, color: 'var(--sand-warm)', cursor: 'pointer' }}
                 title="Revenir au round courant selon l'heure"
               >
-                🔄 Auto
+                🔄 Retour auto
               </button>
             )}
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {Array.from({ length: totalRounds }, (_, i) => {
               const r = i + 1
-              const isSelected = r === selectedRound
+              const isSelected = r === selectedRound && (displayMode === 'scores' || manualRoundSelection)
               const isAutoRound = r === autoRound
               const status = roundStatus(r)
               const t = roundStartTimes[i]
@@ -204,23 +213,23 @@ export default function CorporateView({
                   key={r}
                   onClick={() => pickRound(r)}
                   style={{
-                    padding: '8px 12px',
+                    padding: '10px 14px',
                     borderRadius: 6,
                     border: isSelected ? '2px solid var(--neon)' : '1px solid var(--line)',
-                    background: isSelected ? 'rgba(212,255,58,0.15)' : 'var(--bg-deep)',
+                    background: isSelected ? 'rgba(212,255,58,0.15)' : (status.complete ? 'rgba(46,213,115,0.08)' : 'var(--bg-deep)'),
                     color: isSelected ? 'var(--neon)' : 'var(--white)',
                     cursor: 'pointer',
-                    minWidth: 90,
+                    minWidth: 100,
                     fontSize: 12,
                   }}
                   title={t ? `Warm-up ${t.warmup} · Match ${t.match} → ${t.end}` : ''}
                 >
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>
-                    R{r} {isAutoRound && <span style={{ color: 'var(--sand-warm)', fontSize: 10 }}>●</span>}
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>
+                    R{r} {isAutoRound && <span style={{ color: 'var(--sand-warm)', fontSize: 10 }}>● en cours</span>}
                   </div>
-                  {t && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, marginTop: 2 }}>{t.match}</div>}
-                  <div style={{ fontSize: 10, marginTop: 3, color: status.complete ? 'var(--success)' : status.done > 0 ? 'var(--sand-warm)' : 'var(--gray)' }}>
-                    {status.complete ? '✓ tous validés' : `${status.done}/${status.total}`}
+                  {t && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, marginTop: 3 }}>{t.match}</div>}
+                  <div style={{ fontSize: 11, marginTop: 4, color: status.complete ? 'var(--success)' : status.done > 0 ? 'var(--sand-warm)' : 'var(--gray)' }}>
+                    {status.complete ? '✓ tous validés' : `${status.done}/${status.total} scores`}
                   </div>
                 </button>
               )
