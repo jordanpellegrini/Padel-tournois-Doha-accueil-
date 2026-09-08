@@ -3,8 +3,17 @@
 // ============================================
 // Format : N entreprises (2-6), chacune a M équipes classées par niveau (1=meilleure)
 // Les équipes de MÊME NIVEAU s'affrontent en round-robin (entre entreprises)
-// Classement principal : par entreprise (somme des jeux gagnés de toutes ses équipes)
-// Classement secondaire : par niveau
+//
+// SCORING (nouvelle logique) :
+//   - Classement par niveau : 3 points par victoire (pas de match nul)
+//     Départage : différence de jeux, puis jeux gagnés
+//   - Classement par entreprise : points positionnels selon le rang dans chaque niveau
+//     1er = 4 pts · 2e = 3 pts · 3e = 2 pts · 4e = 1 pt · 5e+ = 0 pt
+//     Total = somme sur tous les niveaux
+//     Départage : différence de jeux totale (toutes équipes de l'entreprise)
+
+// Points attribués selon la position dans le classement d'un niveau
+const POSITION_POINTS = [4, 3, 2, 1] // index 0 = 1er, 1 = 2e, etc. Après : 0
 
 /**
  * Round-robin (algorithme du cercle) pour un groupe d'équipes
@@ -37,22 +46,14 @@ function buildRoundRobinRounds(teamIds) {
  * Nombre de matchs que chaque équipe jouera (= nombre d'entreprises - 1)
  */
 export function matchesPerTeam(numCompanies) {
-  // round-robin entre 1 équipe par entreprise => chacune joue (numCompanies - 1) matchs
-  // (si numCompanies impair, une équipe est "exempt" à chaque round, donc un peu moins)
   return numCompanies - 1
 }
 
 /**
  * Génère les matchs d'un tournoi inter-entreprises.
- * @param {Array} teams - [{id, company_index, level}]
- * @param {number} numCompanies
- * @param {number} maxLevel - nombre d'équipes par entreprise (= nombre de niveaux)
- * @param {number} numCourts
- * @returns {Array} matchs [{phase:'corporate', level, round_number, court_number, team_a_id, team_b_id, bracket_label}]
  */
 export function generateCorporateMatches(teams, numCompanies, maxLevel, numCourts) {
-  // Pour chaque niveau, on fait un round-robin entre les équipes de ce niveau
-  const levelRounds = {} // levelRounds[level] = [[matchs r1], [matchs r2], ...]
+  const levelRounds = {}
   for (let lvl = 1; lvl <= maxLevel; lvl++) {
     const levelTeams = teams.filter((t) => t.level === lvl).map((t) => t.id)
     levelRounds[lvl] = buildRoundRobinRounds(levelTeams)
@@ -62,8 +63,6 @@ export function generateCorporateMatches(teams, numCompanies, maxLevel, numCourt
   const matches = []
   let globalRound = 0
 
-  // À chaque round du round-robin, on collecte les matchs de TOUS les niveaux
-  // et on les répartit sur les terrains disponibles
   for (let r = 0; r < maxRounds; r++) {
     const roundMatchesAllLevels = []
     for (let lvl = 1; lvl <= maxLevel; lvl++) {
@@ -73,7 +72,6 @@ export function generateCorporateMatches(teams, numCompanies, maxLevel, numCourt
         })
       }
     }
-
     let courtCounter = 0
     let currentGlobalRound = globalRound + 1
     roundMatchesAllLevels.forEach((m) => {
@@ -99,65 +97,17 @@ export function generateCorporateMatches(teams, numCompanies, maxLevel, numCourt
 }
 
 /**
- * Classement par ENTREPRISE
- * On additionne les jeux gagnés et les victoires de toutes les équipes de chaque entreprise
- * @returns {Array} trié [{company_index, company_name, wins, pointsFor, pointsAgainst, diff, played}]
- */
-export function computeCorporateStandings(teams, matches, companyNames) {
-  const stats = {}
-
-  // Détermine la liste des entreprises : on part des noms fournis,
-  // mais on complète avec les company_index présents dans les équipes
-  // (au cas où company_names serait vide ou incomplet).
-  const names = Array.isArray(companyNames) ? [...companyNames] : []
-  const indexesFromTeams = [...new Set(teams.map((t) => t.company_index).filter((i) => i !== null && i !== undefined))]
-  const maxIndex = Math.max(names.length - 1, ...(indexesFromTeams.length ? indexesFromTeams : [-1]))
-
-  for (let idx = 0; idx <= maxIndex; idx++) {
-    stats[idx] = {
-      company_index: idx,
-      company_name: names[idx] || `Entreprise ${String.fromCharCode(65 + idx)}`,
-      wins: 0,
-      pointsFor: 0,
-      pointsAgainst: 0,
-      played: 0,
-    }
-  }
-
-  const teamById = (id) => teams.find((t) => t.id === id)
-
-  matches
-    .filter((m) => m.phase === 'corporate' && m.is_finished)
-    .forEach((m) => {
-      const teamA = teamById(m.team_a_id)
-      const teamB = teamById(m.team_b_id)
-      if (!teamA || !teamB) return
-      const cA = teamA.company_index
-      const cB = teamB.company_index
-      if (stats[cA] === undefined || stats[cB] === undefined) return
-
-      stats[cA].played++
-      stats[cB].played++
-      stats[cA].pointsFor += m.score_a
-      stats[cA].pointsAgainst += m.score_b
-      stats[cB].pointsFor += m.score_b
-      stats[cB].pointsAgainst += m.score_a
-      if (m.score_a > m.score_b) stats[cA].wins++
-      else if (m.score_b > m.score_a) stats[cB].wins++
-    })
-
-  // Classement : total de jeux gagnés (pointsFor) d'abord, puis différence, puis victoires
-  return Object.values(stats)
-    .map((s) => ({ ...s, diff: s.pointsFor - s.pointsAgainst }))
-    .sort((a, b) => b.pointsFor - a.pointsFor || b.diff - a.diff || b.wins - a.wins)
-}
-
-/**
- * Classement PAR NIVEAU (pour le panneau latéral)
+ * Classement PAR NIVEAU (nouveau système : 3 points par victoire)
+ * Départage : différence de jeux → jeux gagnés
+ *
  * @returns {Object} { level: [classement des équipes de ce niveau] }
+ *   Chaque entrée contient : team, company_name, wins, losses, played,
+ *   pointsFor, pointsAgainst, diff, rankPoints
  */
 export function computeLevelStandings(teams, matches, maxLevel, companyNames) {
   const result = {}
+  const names = Array.isArray(companyNames) ? companyNames : []
+
   for (let lvl = 1; lvl <= maxLevel; lvl++) {
     const levelTeams = teams.filter((t) => t.level === lvl)
     const levelMatches = matches.filter((m) => m.phase === 'corporate' && m.level === lvl)
@@ -166,11 +116,13 @@ export function computeLevelStandings(teams, matches, maxLevel, companyNames) {
     levelTeams.forEach((t) => {
       stats[t.id] = {
         team: t,
-        company_name: companyNames[t.company_index] || `Entreprise ${t.company_index + 1}`,
+        company_name: names[t.company_index] || `Entreprise ${String.fromCharCode(65 + t.company_index)}`,
         wins: 0,
+        losses: 0,
+        played: 0,
         pointsFor: 0,
         pointsAgainst: 0,
-        played: 0,
+        rankPoints: 0, // 3 points par victoire
       }
     })
 
@@ -184,13 +136,96 @@ export function computeLevelStandings(teams, matches, maxLevel, companyNames) {
         stats[m.team_a_id].pointsAgainst += m.score_b
         stats[m.team_b_id].pointsFor += m.score_b
         stats[m.team_b_id].pointsAgainst += m.score_a
-        if (m.score_a > m.score_b) stats[m.team_a_id].wins++
-        else if (m.score_b > m.score_a) stats[m.team_b_id].wins++
+        if (m.score_a > m.score_b) {
+          stats[m.team_a_id].wins++
+          stats[m.team_a_id].rankPoints += 3
+          stats[m.team_b_id].losses++
+        } else if (m.score_b > m.score_a) {
+          stats[m.team_b_id].wins++
+          stats[m.team_b_id].rankPoints += 3
+          stats[m.team_a_id].losses++
+        }
       })
 
+    // Tri : points d'abord, puis diff de jeux, puis jeux gagnés
     result[lvl] = Object.values(stats)
       .map((s) => ({ ...s, diff: s.pointsFor - s.pointsAgainst }))
-      .sort((a, b) => b.wins - a.wins || b.diff - a.diff || b.pointsFor - a.pointsFor)
+      .sort((a, b) => b.rankPoints - a.rankPoints || b.diff - a.diff || b.pointsFor - a.pointsFor)
   }
   return result
+}
+
+/**
+ * Classement PAR ENTREPRISE (nouveau système : points positionnels)
+ * On calcule d'abord le classement de chaque niveau, puis on attribue
+ * 4-3-2-1-0 points selon la position de chaque équipe dans son niveau.
+ * On additionne pour chaque entreprise et on trie.
+ * Départage : différence de jeux totale.
+ *
+ * @returns {Array} trié [{ company_index, company_name, totalPoints,
+ *   totalPointsFor, totalPointsAgainst, totalWins, diff, positionsByLevel }]
+ */
+export function computeCorporateStandings(teams, matches, companyNames, maxLevel) {
+  const names = Array.isArray(companyNames) ? [...companyNames] : []
+
+  // Détermine la liste des entreprises (à partir de companyNames + company_index des équipes)
+  const indexesFromTeams = [...new Set(teams.map((t) => t.company_index).filter((i) => i !== null && i !== undefined))]
+  const maxIndex = Math.max(names.length - 1, ...(indexesFromTeams.length ? indexesFromTeams : [-1]))
+
+  // Détermine le maxLevel si pas fourni
+  const actualMaxLevel = maxLevel || Math.max(1, ...teams.map((t) => t.level || 0))
+
+  // Initialise les stats de chaque entreprise
+  const stats = {}
+  for (let idx = 0; idx <= maxIndex; idx++) {
+    stats[idx] = {
+      company_index: idx,
+      company_name: names[idx] || `Entreprise ${String.fromCharCode(65 + idx)}`,
+      totalPoints: 0,          // Somme des points positionnels (garanti nombre)
+      totalPointsFor: 0,       // Jeux gagnés (pour départage)
+      totalPointsAgainst: 0,
+      totalWins: 0,
+      played: 0,
+      positionsByLevel: {},    // {level: rank} pour affichage
+    }
+  }
+
+  // Calcule le classement de chaque niveau
+  const levelStandings = computeLevelStandings(teams, matches, actualMaxLevel, names)
+
+  // Attribue les points positionnels
+  Object.entries(levelStandings).forEach(([lvl, ranking]) => {
+    // Ne prend en compte que les niveaux où au moins 1 match a été joué ET validé
+    const hasFinishedMatches = ranking.some((s) => (s.played || 0) > 0)
+    if (!hasFinishedMatches) return
+
+    ranking.forEach((s, idx) => {
+      const positionPoints = POSITION_POINTS[idx] || 0
+      const cIdx = s.team.company_index
+      if (cIdx === null || cIdx === undefined) return
+      // Si le cIdx sort du tableau stats (bug data), on l'ignore proprement
+      if (stats[cIdx] === undefined) return
+
+      stats[cIdx].totalPoints = (stats[cIdx].totalPoints || 0) + positionPoints
+      stats[cIdx].totalPointsFor = (stats[cIdx].totalPointsFor || 0) + (s.pointsFor || 0)
+      stats[cIdx].totalPointsAgainst = (stats[cIdx].totalPointsAgainst || 0) + (s.pointsAgainst || 0)
+      stats[cIdx].totalWins = (stats[cIdx].totalWins || 0) + (s.wins || 0)
+      stats[cIdx].played = (stats[cIdx].played || 0) + (s.played || 0)
+      stats[cIdx].positionsByLevel[lvl] = idx + 1
+    })
+  })
+
+  // Tri : points totaux d'abord, puis différence de jeux
+  // Garantit que TOUS les champs numériques ont une valeur (0 par défaut, pas undefined)
+  return Object.values(stats)
+    .map((s) => ({
+      ...s,
+      totalPoints: s.totalPoints || 0,
+      totalPointsFor: s.totalPointsFor || 0,
+      totalPointsAgainst: s.totalPointsAgainst || 0,
+      totalWins: s.totalWins || 0,
+      played: s.played || 0,
+      diff: (s.totalPointsFor || 0) - (s.totalPointsAgainst || 0),
+    }))
+    .sort((a, b) => b.totalPoints - a.totalPoints || b.diff - a.diff)
 }

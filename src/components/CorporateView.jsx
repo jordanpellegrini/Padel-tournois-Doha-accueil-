@@ -301,12 +301,12 @@ export default function CorporateView({
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontFamily: 'var(--font-display)', fontSize: 34, color: 'var(--neon)' }}>{s.totalPoints}</div>
+                    <div style={{ fontFamily: 'var(--font-display)', fontSize: 34, color: 'var(--neon)' }}>{Number(s.totalPoints) || 0}</div>
                     <div style={{ fontSize: 12, color: 'var(--gray)' }}>points</div>
                   </div>
                   <div style={{ textAlign: 'right', minWidth: 56 }}>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, color: s.diff >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                      {s.diff > 0 ? `+${s.diff}` : s.diff}
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, color: (s.diff || 0) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                      {(s.diff || 0) > 0 ? `+${s.diff}` : (s.diff || 0)}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--gray)' }}>diff.</div>
                   </div>
