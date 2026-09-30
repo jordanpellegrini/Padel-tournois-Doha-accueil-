@@ -51,64 +51,100 @@ export function matchesPerTeam(numCompanies) {
 
 /**
  * Génère les matchs d'un tournoi inter-entreprises.
- * Optimise le remplissage des terrains : à chaque round global, on prend
- * plusieurs "rounds RR" de niveaux DIFFÉRENTS en parallèle jusqu'à saturer
- * les terrains disponibles. Priorité aux niveaux ayant le plus de rounds
- * RR restants pour équilibrer la charge.
+ *
+ * ALGORITHME :
+ * 1. Pour chaque niveau, on génère ses rounds RR (chaque round RR = paires
+ *    d'équipes de ce niveau qui s'affrontent en parallèle sans conflit).
+ * 2. On distribue les rounds RR de chaque niveau dans des rounds globaux
+ *    en respectant DEUX contraintes strictes :
+ *      - Pas plus de numCourts matchs dans un round global
+ *      - Jamais 2 rounds RR du même niveau dans le même round global
+ *        (garantit qu'aucune équipe ne joue 2 matchs simultanés)
+ * 3. On essaie d'abord avec le minimum théorique de rounds globaux
+ *    (= max entre nb max de rounds RR par niveau, et ceil(matchs/terrains))
+ *    puis on incrémente si l'assignation échoue.
+ * 4. À chaque assignement, on choisit le round global le MOINS chargé
+ *    (équilibrage) parmi ceux qui peuvent accueillir le round RR.
  */
 export function generateCorporateMatches(teams, numCompanies, maxLevel, numCourts) {
-  // File des rounds RR pour chaque niveau (chaque round RR = paires d'équipes)
-  const queues = {}
+  // Étape 1 : rounds RR par niveau
+  const levelRRRounds = {}
   for (let lvl = 1; lvl <= maxLevel; lvl++) {
     const levelTeams = teams.filter((t) => t.level === lvl).map((t) => t.id)
-    queues[lvl] = buildRoundRobinRounds(levelTeams)
+    if (levelTeams.length >= 2) {
+      levelRRRounds[lvl] = buildRoundRobinRounds(levelTeams)
+    }
   }
 
-  // Algorithme glouton : à chaque round global, on empile autant de "rounds RR"
-  // que possible sur les terrains. Priorité aux niveaux ayant le plus de RR
-  // restants pour équilibrer la charge sur toute la durée du tournoi.
-  const matches = []
-  let globalRound = 0
-  let hasRemaining = Object.values(queues).some((q) => q.length > 0)
+  if (Object.keys(levelRRRounds).length === 0) return []
 
-  while (hasRemaining) {
-    globalRound++
-    let courtCounter = 0
+  // Nombre total de matchs à placer
+  let totalMatches = 0
+  Object.values(levelRRRounds).forEach((rrs) => {
+    rrs.forEach((r) => { totalMatches += r.length })
+  })
 
-    // Boucle : tant qu'on peut caser un round RR de plus dans les terrains restants
-    let placedSomething = true
-    while (placedSomething && courtCounter < numCourts) {
-      placedSomething = false
-      // Trie les niveaux dispos par nb de RR restants (desc pour équilibrer)
-      const sortedLevels = Object.entries(queues)
-        .filter(([_, q]) => q.length > 0 && q[0].length <= numCourts - courtCounter)
-        .sort((a, b) => b[1].length - a[1].length)
+  // Nombre minimum théorique de rounds globaux
+  const maxRRPerLevel = Math.max(...Object.values(levelRRRounds).map((rrs) => rrs.length), 0)
+  const minRounds = Math.max(maxRRPerLevel, Math.ceil(totalMatches / numCourts))
 
-      if (sortedLevels.length === 0) break
+  // Étape 2 : essai d'assignation avec un nombre donné de rounds globaux
+  const tryAssign = (numGlobalRounds) => {
+    const globals = Array.from({ length: numGlobalRounds }, () => ({ items: [], courts: 0 }))
 
-      const [lvlStr, q] = sortedLevels[0]
+    // Traite chaque niveau : distribue ses rounds RR dans les rounds globaux
+    for (const [lvlStr, rrs] of Object.entries(levelRRRounds)) {
       const lvl = parseInt(lvlStr, 10)
-      const nextRR = q[0]
-      nextRR.forEach((pair) => {
-        matches.push({
+      for (let rrIdx = 0; rrIdx < rrs.length; rrIdx++) {
+        const rrSize = rrs[rrIdx].length
+        // Rounds globaux compatibles : capacité OK + niveau pas déjà présent
+        const candidates = globals
+          .map((g, idx) => ({ g, idx }))
+          .filter(({ g }) => (
+            g.courts + rrSize <= numCourts &&
+            !g.items.some((it) => it.level === lvl)
+          ))
+          .sort((a, b) => a.g.courts - b.g.courts) // moins chargé d'abord
+        if (candidates.length === 0) return null
+        const { g } = candidates[0]
+        g.items.push({ level: lvl, rrIdx, matches: rrs[rrIdx] })
+        g.courts += rrSize
+      }
+    }
+    return globals
+  }
+
+  // Essai avec minRounds, puis incrémente si nécessaire
+  let numRounds = minRounds
+  let result = tryAssign(numRounds)
+  const safetyLimit = minRounds + 20
+  while (result === null && numRounds < safetyLimit) {
+    numRounds++
+    result = tryAssign(numRounds)
+  }
+
+  if (!result) return [] // sécurité (ne devrait jamais arriver)
+
+  // Étape 3 : convertit en matches[] avec round_number et court_number
+  const final = []
+  result.forEach((g, gIdx) => {
+    let court = 1
+    g.items.forEach((item) => {
+      item.matches.forEach((pair) => {
+        final.push({
           phase: 'corporate',
-          level: lvl,
-          round_number: globalRound,
-          court_number: courtCounter + 1,
+          level: item.level,
+          round_number: gIdx + 1,
+          court_number: court,
           team_a_id: pair[0],
           team_b_id: pair[1],
-          bracket_label: `NIVEAU ${lvl}`,
+          bracket_label: `NIVEAU ${item.level}`,
         })
-        courtCounter++
+        court++
       })
-      q.shift()
-      placedSomething = true
-    }
-
-    hasRemaining = Object.values(queues).some((q) => q.length > 0)
-  }
-
-  return matches
+    })
+  })
+  return final
 }
 
 /**
