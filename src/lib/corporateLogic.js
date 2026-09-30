@@ -51,46 +51,61 @@ export function matchesPerTeam(numCompanies) {
 
 /**
  * Génère les matchs d'un tournoi inter-entreprises.
+ * Optimise le remplissage des terrains : à chaque round global, on prend
+ * plusieurs "rounds RR" de niveaux DIFFÉRENTS en parallèle jusqu'à saturer
+ * les terrains disponibles. Priorité aux niveaux ayant le plus de rounds
+ * RR restants pour équilibrer la charge.
  */
 export function generateCorporateMatches(teams, numCompanies, maxLevel, numCourts) {
-  const levelRounds = {}
+  // File des rounds RR pour chaque niveau (chaque round RR = paires d'équipes)
+  const queues = {}
   for (let lvl = 1; lvl <= maxLevel; lvl++) {
     const levelTeams = teams.filter((t) => t.level === lvl).map((t) => t.id)
-    levelRounds[lvl] = buildRoundRobinRounds(levelTeams)
+    queues[lvl] = buildRoundRobinRounds(levelTeams)
   }
 
-  const maxRounds = Math.max(...Object.values(levelRounds).map((r) => r.length), 0)
+  // Algorithme glouton : à chaque round global, on empile autant de "rounds RR"
+  // que possible sur les terrains. Priorité aux niveaux ayant le plus de RR
+  // restants pour équilibrer la charge sur toute la durée du tournoi.
   const matches = []
   let globalRound = 0
+  let hasRemaining = Object.values(queues).some((q) => q.length > 0)
 
-  for (let r = 0; r < maxRounds; r++) {
-    const roundMatchesAllLevels = []
-    for (let lvl = 1; lvl <= maxLevel; lvl++) {
-      if (levelRounds[lvl][r]) {
-        levelRounds[lvl][r].forEach((pair) => {
-          roundMatchesAllLevels.push({ level: lvl, pair })
-        })
-      }
-    }
+  while (hasRemaining) {
+    globalRound++
     let courtCounter = 0
-    let currentGlobalRound = globalRound + 1
-    roundMatchesAllLevels.forEach((m) => {
-      if (courtCounter >= numCourts) {
-        currentGlobalRound++
-        courtCounter = 0
-      }
-      matches.push({
-        phase: 'corporate',
-        level: m.level,
-        round_number: currentGlobalRound,
-        court_number: courtCounter + 1,
-        team_a_id: m.pair[0],
-        team_b_id: m.pair[1],
-        bracket_label: `NIVEAU ${m.level}`,
+
+    // Boucle : tant qu'on peut caser un round RR de plus dans les terrains restants
+    let placedSomething = true
+    while (placedSomething && courtCounter < numCourts) {
+      placedSomething = false
+      // Trie les niveaux dispos par nb de RR restants (desc pour équilibrer)
+      const sortedLevels = Object.entries(queues)
+        .filter(([_, q]) => q.length > 0 && q[0].length <= numCourts - courtCounter)
+        .sort((a, b) => b[1].length - a[1].length)
+
+      if (sortedLevels.length === 0) break
+
+      const [lvlStr, q] = sortedLevels[0]
+      const lvl = parseInt(lvlStr, 10)
+      const nextRR = q[0]
+      nextRR.forEach((pair) => {
+        matches.push({
+          phase: 'corporate',
+          level: lvl,
+          round_number: globalRound,
+          court_number: courtCounter + 1,
+          team_a_id: pair[0],
+          team_b_id: pair[1],
+          bracket_label: `NIVEAU ${lvl}`,
+        })
+        courtCounter++
       })
-      courtCounter++
-    })
-    globalRound = currentGlobalRound
+      q.shift()
+      placedSomething = true
+    }
+
+    hasRemaining = Object.values(queues).some((q) => q.length > 0)
   }
 
   return matches
